@@ -1,0 +1,20 @@
+const TRACKS = {
+  KNOWLEDGE: 'KNOWLEDGE',
+  INNOVATION: 'INNOVATION',
+};
+
+const TRACK_LABELS = {
+  [TRACKS.KNOWLEDGE]: '知识类',
+  [TRACKS.INNOVATION]: '创新设计类',
+};
+
+const SUBMISSION_STATUS = {
+  DRAFT: 'DRAFT',
+  SUBMITTED: 'SUBMITTED',
+};
+
+module.exports = {
+  TRACKS,
+  TRACK_LABELS,
+  SUBMISSION_STATUS,
+};

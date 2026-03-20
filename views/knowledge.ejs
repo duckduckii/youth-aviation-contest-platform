@@ -1,0 +1,28 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <%- include('partials/flash') %>
+
+  <section class="hero">
+    <div class="hero-banner">
+      <div>
+        <h1 class="hero-title">知识类提交流程</h1>
+        <div class="hero-subtitle">你已锁定“知识类”赛道</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">功能说明 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+    <p class="section-tip">
+      依据当前需求文档，知识类赛道的详细提交项尚未定义。当前页面提供赛道锁定与状态展示，后续可按业务补充答题或材料提交流程。
+    </p>
+
+    <div class="note-box">
+      你当前账号已被锁定为“知识类”，如需切换赛道请联系管理员处理。
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

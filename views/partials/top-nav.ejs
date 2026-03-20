@@ -1,0 +1,20 @@
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="brand" href="<%= currentUser ? '/portal' : '/login' %>">
+      <img class="brand-icon" src="/public/assets/icon-zs1.png" alt="logo" />
+      <div class="brand-title">全国青少年安全与应急科普创新大赛</div>
+    </a>
+
+    <div class="account-actions">
+      <% if (currentUser) { %>
+        <span class="account-pill">账号：<%= currentUser.registration_no %></span>
+        <a class="text-btn" href="/change-password">修改密码</a>
+        <form class="form-inline" method="post" action="/logout">
+          <button type="submit" class="danger-btn">退出登录</button>
+        </form>
+      <% } else { %>
+        <a class="primary-btn" href="/login">登录</a>
+      <% } %>
+    </div>
+  </div>
+</header>

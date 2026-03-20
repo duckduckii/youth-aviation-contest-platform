@@ -1,0 +1,121 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <%- include('partials/flash') %>
+
+  <section class="hero">
+    <div class="hero-banner">
+      <div>
+        <h1 class="hero-title">创新设计类作品提交</h1>
+        <div class="hero-subtitle">请按要求上传四项材料，支持多次保存草稿，确认无误后最终提交</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-card">
+    <h2>航模方向 - 材料提交表单</h2>
+    <div class="status-line">
+      <span>提交状态：</span>
+      <span class="badge <%= submission.status === statusMap.SUBMITTED ? 'submitted' : 'draft' %>">
+        <%= submission.status === statusMap.SUBMITTED ? '已提交（锁定）' : '草稿中' %>
+      </span>
+      <% if (submission.submitted_at) { %>
+        <span>最终提交时间：<%= new Date(submission.submitted_at).toLocaleString('zh-CN', { hour12: false }) %></span>
+      <% } %>
+    </div>
+
+    <form method="post" action="/innovation" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="save" />
+
+      <div class="field-group">
+        <label class="field-label" for="workTitle">作品题目</label>
+        <input
+          class="input"
+          id="workTitle"
+          name="workTitle"
+          placeholder="请输入作品题目（最终提交必填）"
+          value="<%= submission.work_title || '' %>"
+          <%= submission.status === statusMap.SUBMITTED ? 'readonly' : '' %>
+        />
+      </div>
+
+      <div class="note-box">
+        命名规则参考：`{作品题目}.pdf`、`{作品题目}证明材料1.pdf`、`{作品题目}证明材料2.mp4`。<br />
+        系统会按规则记录存储名称，并对格式与大小做校验。
+      </div>
+
+      <div class="upload-grid">
+        <div class="upload-header">
+          <div>提交项</div>
+          <div>规则说明</div>
+          <div>当前文件</div>
+          <div>操作</div>
+        </div>
+
+        <% fileRows.forEach((row) => { %>
+          <div class="upload-row">
+            <div>
+              <strong><%= row.label %></strong>
+              <div class="muted"><%= row.required ? '必填' : '选填' %></div>
+            </div>
+
+            <div class="rule-cell">
+              格式：<%= row.ext.toUpperCase() %><br />
+              大小：不超过 <%= row.maxMb %>MB
+            </div>
+
+            <div class="file-cell">
+              <% if (row.hasFile) { %>
+                <div class="file-name">原文件：<%= row.originalName %></div>
+                <div class="file-name">存储名：<%= row.storedName %></div>
+                <a href="/innovation/file/<%= row.key %>" target="_blank">下载查看</a>
+              <% } else { %>
+                <span class="muted">未上传</span>
+              <% } %>
+            </div>
+
+            <div>
+              <% if (submission.status === statusMap.SUBMITTED) { %>
+                <span class="muted">已锁定，不可修改</span>
+              <% } else { %>
+                <label class="upload-action">
+                  <%= row.hasFile ? '修改' : '上传' %>
+                  <input
+                    type="file"
+                    name="<%= row.inputName %>"
+                    data-ext="<%= row.ext %>"
+                    data-max-mb="<%= row.maxMb %>"
+                    accept="<%= row.ext %>"
+                  />
+                </label>
+                <div class="muted" data-file-text="<%= row.inputName %>"></div>
+              <% } %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">提交日期</label>
+        <input
+          class="input"
+          value="<%= submission.submitted_at ? new Date(submission.submitted_at).toLocaleString('zh-CN', { hour12: false }) : '最终提交后系统自动生成' %>"
+          readonly
+        />
+      </div>
+
+      <div class="actions-row">
+        <% if (submission.status === statusMap.SUBMITTED) { %>
+          <button type="button" class="ghost-btn" disabled>已提交锁定</button>
+        <% } else { %>
+          <button type="submit" data-action="save" class="ghost-btn">保存草稿</button>
+          <button type="submit" data-action="submit" class="primary-btn">最终提交</button>
+        <% } %>
+        <a class="text-btn" href="/downloads/integrity-template">下载诚信承诺书模板</a>
+      </div>
+    </form>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
