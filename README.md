@@ -1,6 +1,6 @@
 # 全国青少年安全与应急科普创新大赛（航模方向）作品提交系统
 
-基于 `Node.js + Express + EJS + MySQL` 的可运行版本，已实现：
+基于 `Node.js + Express + EJS + MySQL + Redis` 的可运行版本，已实现：
 
 - 账号登录
 - 登录后显示当前账号、修改密码、退出登录
@@ -8,6 +8,8 @@
 - 赛道状态记忆（再次登录自动进入对应流程）
 - 创新设计类四项文件上传与修改（PDF / MP4 格式、大小限制校验）
 - 草稿保存与最终提交（最终提交后锁定）
+- 存储双模式：本地落盘 / OSS 直传
+- Redis Session 存储
 - 管理员后台统计看板（报名总览、提交进度、7日趋势、最近动态）
 - 诚信承诺书模板下载
 - 参考目标站点风格的首页横幅、蓝色主题、卡片化UI
@@ -16,6 +18,7 @@
 
 - Node.js 20+（当前项目在 Node 22 测试）
 - MySQL 8/9
+- Redis 7+
 
 ## 2. 安装 MySQL（macOS，Homebrew）
 
@@ -40,6 +43,8 @@ npm run db:prepare
 - 创建 `users`、`submissions` 两张表
 - 写入演示账号
 
+启动前请确保 Redis 可用，默认连接 `127.0.0.1:6379`。
+
 ## 4. 启动
 
 ```bash
@@ -49,6 +54,7 @@ npm run dev
 浏览器打开：
 
 - `http://localhost:3000`
+- 健康检查：`http://localhost:3000/healthz`
 
 ## 5. 演示账号
 
@@ -86,3 +92,11 @@ npm run dev
   - 诚信承诺书（PDF）
 - 文件按统一归档规则落盘存储，前台仅展示用户上传文件名。
 - 最终提交后状态变为 `SUBMITTED`，页面锁定不允许修改。
+- `STORAGE_DRIVER=local` 时，文件保存到服务器本地 `uploads/`
+- `STORAGE_DRIVER=oss` 时，浏览器直传 OSS，ECS 只负责签名和元数据入库
+- Session 统一存储在 Redis，支持后续多实例部署
+
+## 8. 部署
+
+- ECS + OSS 部署说明见：[deploy/ecs-oss-deploy.md](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/ecs-oss-deploy.md)
+- 单 ECS + Docker + 本机 MySQL/Redis + OSS 说明见：[deploy/ecs-single-node-docker.md](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/ecs-single-node-docker.md)

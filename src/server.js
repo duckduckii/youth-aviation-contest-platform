@@ -3,6 +3,7 @@ const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const multer = require('multer');
+const { RedisStore } = require('connect-redis');
 
 const config = require('./config');
 const { ensureAuth, ensureGuest } = require('./middleware/auth');
@@ -10,11 +11,12 @@ const { TRACKS, TRACK_LABELS, SUBMISSION_STATUS } = require('./constants');
 const userService = require('./services/user-service');
 const submissionService = require('./services/submission-service');
 const adminDashboardService = require('./services/admin-dashboard-service');
+const storageService = require('./services/storage-service');
+const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
 const {
   sanitizeWorkTitle,
   extOf,
   ensureDir,
-  removeFile,
   buildStoredName,
   buildPhysicalName,
 } = require('./utils/file-helpers');
@@ -70,6 +72,10 @@ const uploadFields = upload.fields(
   ALL_RULES.map((rule) => ({ name: rule.inputName, maxCount: 1 })),
 );
 const INTEGRITY_TEMPLATE_PATH = path.join(process.cwd(), 'public', 'downloads', '诚信承诺书.docx');
+
+function innovationUploadMiddleware(req, res, next) {
+  return uploadFields(req, res, next);
+}
 
 function isAdminUser(user) {
   return Boolean(user && user.registration_no === 'admin');
@@ -149,6 +155,20 @@ function displayRequiredLabel(rule) {
   return rule.label;
 }
 
+function parseUploadedFilesPayload(raw) {
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch (error) {
+    return {};
+  }
+}
+
 function hasAllRequiredFiles(submission) {
   for (const rule of ALL_RULES) {
     if (!rule.required) continue;
@@ -203,17 +223,29 @@ async function canChangeDirection(user) {
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(process.cwd(), 'views'));
+if (config.app.trustProxy) {
+  app.set('trust proxy', 1);
+}
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+const redisClient = createRedisClient();
+const redisStore = new RedisStore({
+  client: redisClient,
+  prefix: config.redis.prefix,
+  ttl: config.redis.sessionTtl,
+});
+
 app.use(
   session({
+    store: redisStore,
     secret: config.app.sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 8,
+      secure: config.session.cookieSecure,
+      maxAge: config.redis.sessionTtl * 1000,
     },
   }),
 );
@@ -251,6 +283,14 @@ app.get('/', (req, res) => {
     return res.redirect('/login');
   }
   return res.redirect('/portal');
+});
+
+app.get('/healthz', (req, res) => {
+  res.json({
+    ok: true,
+    storageDriver: config.storage.driver,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.get('/login', ensureGuest, (req, res) => {
@@ -523,13 +563,71 @@ app.get('/innovation', ensureAuth, (req, res, next) => ensureTrack(req, res, nex
       submission,
       fileRows,
       statusMap: SUBMISSION_STATUS,
+      storageDriver: storageService.isOssDriver() ? 'oss' : 'local',
     });
   } catch (error) {
     return next(error);
   }
 });
 
-app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
+app.post('/api/uploads/sign', ensureAuth, async (req, res) => {
+  if (!storageService.isOssDriver()) {
+    return res.status(400).json({ message: '当前环境未启用 OSS 直传' });
+  }
+
+  if (isAdminUser(req.currentUser)) {
+    return res.status(403).json({ message: '管理员账号不参与报名流程' });
+  }
+
+  if (!req.currentUser || req.currentUser.direction !== TRACKS.INNOVATION) {
+    return res.status(403).json({ message: '当前账号未进入创新设计类赛道' });
+  }
+
+  const { fieldKey, fileName, contentType, size } = req.body || {};
+  const rule = FILE_RULES[fieldKey];
+  if (!rule) {
+    return res.status(400).json({ message: '文件类型不存在' });
+  }
+
+  if (extOf(fileName) !== rule.ext) {
+    return res.status(400).json({ message: `${rule.label}仅支持${rule.ext.toUpperCase()}文件` });
+  }
+
+  if (Number(size) > toBytes(rule.maxMb)) {
+    return res.status(400).json({ message: `${rule.label}大小不能超过${rule.maxMb}MB` });
+  }
+
+  try {
+    const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
+    if (submission.status === SUBMISSION_STATUS.SUBMITTED) {
+      return res.status(409).json({ message: '该作品已最终提交，不能再修改' });
+    }
+
+    const storedName = buildStoredName(req.currentUser.registration_no, rule.key, rule.ext);
+    const result = await storageService.signDirectUpload({
+      registrationNo: req.currentUser.registration_no,
+      fieldKey: rule.key,
+      storedName,
+      contentType,
+    });
+
+    return res.json({
+      fieldKey: rule.key,
+      objectKey: result.objectKey,
+      uploadUrl: result.uploadUrl,
+      headers: result.headers,
+      expiresIn: result.expiresIn,
+      storedName,
+      originalName: normalizeOriginalName(fileName),
+      contentType,
+      size: Number(size) || 0,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: `签名失败：${error.message}` });
+  }
+});
+
+app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res) => {
   const adminMode = isAdminUser(req.currentUser);
 
   if (adminMode) {
@@ -555,72 +653,137 @@ app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
     const workTitle = sanitizeWorkTitle(req.body.workTitle || submission.work_title || '');
     const updates = {};
     const incomingFiles = req.files || {};
+    const uploadedFilesPayload = parseUploadedFilesPayload(req.body.uploadedFilesPayload);
 
     if (workTitle) {
       updates.work_title = workTitle;
     }
 
     const validationErrors = [];
-    for (const rule of ALL_RULES) {
-      const file = incomingFiles[rule.inputName]?.[0];
-      if (!file) continue;
+    if (storageService.isOssDriver()) {
+      const oldReferencesToDelete = [];
 
-      const message = validateUploadedFile(file, rule);
-      if (message) {
-        validationErrors.push(message);
+      for (const [fieldKey, payload] of Object.entries(uploadedFilesPayload)) {
+        const rule = FILE_RULES[fieldKey];
+        if (!rule || !payload || typeof payload !== 'object') {
+          validationErrors.push('上传元数据不合法，请重新上传文件');
+          continue;
+        }
+
+        if (!storageService.isExpectedObjectKey(req.currentUser.registration_no, rule.key, payload.objectKey)) {
+          validationErrors.push(`${rule.label}对象路径不合法，请重新上传`);
+          continue;
+        }
+
+        if (extOf(payload.originalName) !== rule.ext) {
+          validationErrors.push(`${rule.label}仅支持${rule.ext.toUpperCase()}文件`);
+          continue;
+        }
+
+        if (Number(payload.size) > toBytes(rule.maxMb)) {
+          validationErrors.push(`${rule.label}大小不能超过${rule.maxMb}MB`);
+          continue;
+        }
+
+        const exists = await storageService.hasStoredObject(payload.objectKey);
+        if (!exists) {
+          validationErrors.push(`${rule.label}尚未上传成功，请重新上传`);
+          continue;
+        }
+
+        const oldReference = submission[`${rule.key}_file_path`];
+        if (oldReference && oldReference !== payload.objectKey) {
+          oldReferencesToDelete.push(oldReference);
+        }
+
+        Object.assign(
+          updates,
+          buildFileColumns(
+            rule.key,
+            payload.objectKey,
+            normalizeOriginalName(payload.originalName),
+            payload.storedName || path.basename(payload.objectKey),
+          ),
+        );
       }
-    }
 
-    if (validationErrors.length > 0) {
-      setFlash(req, 'error', validationErrors.join('；'));
-      return res.redirect('/innovation');
-    }
+      if (validationErrors.length > 0) {
+        setFlash(req, 'error', validationErrors.join('；'));
+        return res.redirect('/innovation');
+      }
 
-    const userDir = path.join(config.upload.rootDir, req.currentUser.registration_no);
-    await ensureDir(userDir);
-
-    const newFileMetaMap = {};
-    const newFilesForRollback = [];
-
-    try {
+      if (Object.keys(updates).length > 0) {
+        await submissionService.updateByUserId(req.currentUser.id, updates);
+        for (const reference of oldReferencesToDelete) {
+          // eslint-disable-next-line no-await-in-loop
+          await storageService.removeStoredObject(reference);
+        }
+      }
+    } else {
       for (const rule of ALL_RULES) {
         const file = incomingFiles[rule.inputName]?.[0];
         if (!file) continue;
 
-        const physicalName = buildPhysicalName(req.currentUser.registration_no, rule.key, rule.ext);
-        const absolutePath = path.join(userDir, physicalName);
-        await fs.writeFile(absolutePath, file.buffer);
-
-        newFilesForRollback.push(absolutePath);
-
-        newFileMetaMap[rule.key] = {
-          newPath: absolutePath,
-          originalName: normalizeOriginalName(file.originalname),
-          storedName: buildStoredName(req.currentUser.registration_no, rule.key, rule.ext),
-          oldPath: submission[`${rule.key}_file_path`],
-        };
+        const message = validateUploadedFile(file, rule);
+        if (message) {
+          validationErrors.push(message);
+        }
       }
-    } catch (error) {
-      for (const filePath of newFilesForRollback) {
-        // eslint-disable-next-line no-await-in-loop
-        await removeFile(filePath);
+
+      if (validationErrors.length > 0) {
+        setFlash(req, 'error', validationErrors.join('；'));
+        return res.redirect('/innovation');
       }
-      throw error;
-    }
 
-    for (const rule of ALL_RULES) {
-      const meta = newFileMetaMap[rule.key];
-      if (!meta) continue;
+      const userDir = path.join(config.upload.rootDir, req.currentUser.registration_no);
+      await ensureDir(userDir);
 
-      await removeFile(meta.oldPath);
-      Object.assign(
-        updates,
-        buildFileColumns(rule.key, meta.newPath, meta.originalName, meta.storedName),
-      );
-    }
+      const newFileMetaMap = {};
+      const newFilesForRollback = [];
 
-    if (Object.keys(updates).length > 0) {
-      await submissionService.updateByUserId(req.currentUser.id, updates);
+      try {
+        for (const rule of ALL_RULES) {
+          const file = incomingFiles[rule.inputName]?.[0];
+          if (!file) continue;
+
+          const physicalName = buildPhysicalName(req.currentUser.registration_no, rule.key, rule.ext);
+          const absolutePath = path.join(userDir, physicalName);
+          await storageService.putLocalFile({
+            absolutePath,
+            buffer: file.buffer,
+          });
+
+          newFilesForRollback.push(absolutePath);
+
+          newFileMetaMap[rule.key] = {
+            newPath: absolutePath,
+            originalName: normalizeOriginalName(file.originalname),
+            storedName: buildStoredName(req.currentUser.registration_no, rule.key, rule.ext),
+            oldPath: submission[`${rule.key}_file_path`],
+          };
+        }
+      } catch (error) {
+        for (const filePath of newFilesForRollback) {
+          // eslint-disable-next-line no-await-in-loop
+          await storageService.removeStoredObject(filePath);
+        }
+        throw error;
+      }
+
+      for (const rule of ALL_RULES) {
+        const meta = newFileMetaMap[rule.key];
+        if (!meta) continue;
+
+        await storageService.removeStoredObject(meta.oldPath);
+        Object.assign(
+          updates,
+          buildFileColumns(rule.key, meta.newPath, meta.originalName, meta.storedName),
+        );
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await submissionService.updateByUserId(req.currentUser.id, updates);
+      }
     }
 
     const latestSubmission = {
@@ -715,7 +878,7 @@ app.post('/innovation/file/:fieldKey/delete', ensureAuth, async (req, res) => {
       return res.redirect('/innovation');
     }
 
-    await removeFile(submission[pathKey]);
+    await storageService.removeStoredObject(submission[pathKey]);
     await submissionService.updateByUserId(req.currentUser.id, {
       [`${rule.key}_file_path`]: null,
       [`${rule.key}_original_name`]: null,
@@ -760,6 +923,14 @@ app.use((error, req, res, next) => {
   return res.status(500).send('系统错误，请稍后重试');
 });
 
-app.listen(config.app.port, config.app.host, () => {
-  console.log(`服务已启动：http://${config.app.host}:${config.app.port}`);
+async function startServer() {
+  await ensureRedisConnected(redisClient);
+  app.listen(config.app.port, config.app.host, () => {
+    console.log(`服务已启动：http://${config.app.host}:${config.app.port}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('服务启动失败：', error.message);
+  process.exit(1);
 });

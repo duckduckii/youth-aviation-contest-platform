@@ -28,8 +28,15 @@
       </div>
     <% } %>
 
-    <form method="post" action="/innovation" enctype="multipart/form-data">
+    <form
+      method="post"
+      action="/innovation"
+      enctype="multipart/form-data"
+      data-storage-driver="<%= storageDriver %>"
+      data-sign-endpoint="/api/uploads/sign"
+    >
       <input type="hidden" name="action" value="save" />
+      <input type="hidden" name="uploadedFilesPayload" value="" />
 
       <div class="field-group">
         <label class="field-label" for="workTitle">作品题目</label>
@@ -59,6 +66,7 @@
         <% fileRows.forEach((row) => { %>
           <div
             class="upload-row"
+            data-field-key="<%= row.key %>"
             data-required="<%= row.required ? 'true' : 'false' %>"
             data-has-file="<%= row.hasFile ? 'true' : 'false' %>"
             data-label="<%= row.label %>"

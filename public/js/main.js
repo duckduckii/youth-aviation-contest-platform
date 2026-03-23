@@ -115,6 +115,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const innovationForm = document.querySelector('form[action="/innovation"]');
   const saveButton = document.querySelector('[data-action="save"]');
   const submitButton = document.querySelector('[data-action="submit"]');
+  const uploadPayloadInput = innovationForm
+    ? innovationForm.querySelector('input[name="uploadedFilesPayload"]')
+    : null;
+  const storageDriver = innovationForm ? innovationForm.dataset.storageDriver || 'local' : 'local';
+  const signEndpoint = innovationForm ? innovationForm.dataset.signEndpoint || '/api/uploads/sign' : '';
+
+  function detectContentType(file, expectedExt) {
+    if (file && file.type) {
+      return file.type;
+    }
+
+    const ext = String(expectedExt || '').toLowerCase();
+    if (ext === '.pdf') return 'application/pdf';
+    if (ext === '.mp4') return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
+  async function readJsonSafely(response) {
+    try {
+      return await response.json();
+    } catch (error) {
+      return null;
+    }
+  }
 
   function validateInnovationSubmit() {
     if (!innovationForm) return true;
@@ -146,10 +170,84 @@ document.addEventListener('DOMContentLoaded', () => {
     return true;
   }
 
+  async function uploadSelectedFilesToStorage() {
+    if (!innovationForm || !uploadPayloadInput) {
+      return true;
+    }
+
+    uploadPayloadInput.value = '';
+    if (storageDriver !== 'oss') {
+      return true;
+    }
+
+    const payload = {};
+    const rows = innovationForm.querySelectorAll('.upload-row[data-field-key]');
+
+    for (const row of rows) {
+      const input = row.querySelector('input[type="file"][data-ext]');
+      const file = input && input.files ? input.files[0] : null;
+      if (!file) {
+        continue;
+      }
+
+      const contentType = detectContentType(file, input.dataset.ext);
+      const signResponse = await fetch(signEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          fieldKey: row.dataset.fieldKey,
+          fileName: file.name,
+          contentType,
+          size: file.size,
+        }),
+      });
+
+      const signData = await readJsonSafely(signResponse);
+      if (!signResponse.ok || !signData) {
+        await showAlert((signData && signData.message) || `${row.dataset.label}上传签名失败，请重试`);
+        return false;
+      }
+
+      const uploadResponse = await fetch(signData.uploadUrl, {
+        method: 'PUT',
+        headers: signData.headers || {
+          'Content-Type': contentType,
+        },
+        body: file,
+      });
+
+      if (!uploadResponse.ok) {
+        await showAlert(`${row.dataset.label}上传失败，请重试`);
+        return false;
+      }
+
+      payload[row.dataset.fieldKey] = {
+        objectKey: signData.objectKey,
+        originalName: signData.originalName || file.name,
+        storedName: signData.storedName,
+        size: file.size,
+        contentType,
+      };
+
+      input.value = '';
+      updateSelectedFileState(input, '');
+    }
+
+    uploadPayloadInput.value = JSON.stringify(payload);
+    return true;
+  }
+
   if (saveButton && formActionInput && innovationForm) {
-    saveButton.addEventListener('click', (event) => {
+    saveButton.addEventListener('click', async (event) => {
       event.preventDefault();
       formActionInput.value = 'save';
+      const uploaded = await uploadSelectedFilesToStorage();
+      if (!uploaded) {
+        return;
+      }
       saveScrollPosition();
       innovationForm.requestSubmit();
     });
@@ -166,6 +264,12 @@ document.addEventListener('DOMContentLoaded', () => {
       formActionInput.value = 'submit';
       const ok = await showConfirm('确认最终提交吗？提交后将不可再修改。');
       if (!ok) {
+        formActionInput.value = 'save';
+        return;
+      }
+
+      const uploaded = await uploadSelectedFilesToStorage();
+      if (!uploaded) {
         formActionInput.value = 'save';
         return;
       }
