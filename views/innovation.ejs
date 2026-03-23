@@ -3,27 +3,30 @@
 
 <main class="main-container">
   <%- include('partials/flash') %>
+  <% const isLocked = submission.status === statusMap.SUBMITTED; %>
 
   <section class="hero">
     <div class="hero-banner">
       <div>
         <h1 class="hero-title">创新设计类作品提交</h1>
-        <div class="hero-subtitle">请按要求上传四项材料，支持多次保存草稿，确认无误后最终提交</div>
+        <div class="hero-subtitle">请按要求上传材料，支持多次保存草稿，确认无误后最终提交</div>
       </div>
     </div>
   </section>
 
   <section class="form-card">
-    <h2>航模方向 - 材料提交表单</h2>
+    <h2>航模方向——创新设计类材料提交表单</h2>
     <div class="status-line">
       <span>提交状态：</span>
       <span class="badge <%= submission.status === statusMap.SUBMITTED ? 'submitted' : 'draft' %>">
         <%= submission.status === statusMap.SUBMITTED ? '已提交（锁定）' : '草稿中' %>
       </span>
-      <% if (submission.submitted_at) { %>
-        <span>最终提交时间：<%= new Date(submission.submitted_at).toLocaleString('zh-CN', { hour12: false }) %></span>
-      <% } %>
     </div>
+    <% if (isLocked) { %>
+      <div class="note-box">
+        当前页面保留你已最终提交的文件清单，仅显示文件名，不可再修改。
+      </div>
+    <% } %>
 
     <form method="post" action="/innovation" enctype="multipart/form-data">
       <input type="hidden" name="action" value="save" />
@@ -36,13 +39,13 @@
           name="workTitle"
           placeholder="请输入作品题目（最终提交必填）"
           value="<%= submission.work_title || '' %>"
-          <%= submission.status === statusMap.SUBMITTED ? 'readonly' : '' %>
+          <%= isLocked ? 'readonly' : '' %>
         />
       </div>
 
       <div class="note-box">
         命名规则参考：`{作品题目}.pdf`、`{作品题目}证明材料1.pdf`、`{作品题目}证明材料2.mp4`。<br />
-        系统会按规则记录存储名称，并对格式与大小做校验。
+        其中“其他证明材料2”为选填，其余提交项为必填。系统会对格式与大小做校验。
       </div>
 
       <div class="upload-grid">
@@ -54,7 +57,13 @@
         </div>
 
         <% fileRows.forEach((row) => { %>
-          <div class="upload-row">
+          <div
+            class="upload-row"
+            data-required="<%= row.required ? 'true' : 'false' %>"
+            data-has-file="<%= row.hasFile ? 'true' : 'false' %>"
+            data-label="<%= row.label %>"
+            data-submit-label="<%= row.key === 'proof1' ? '其他证明材料' : row.label %>"
+          >
             <div>
               <strong><%= row.label %></strong>
               <div class="muted"><%= row.required ? '必填' : '选填' %></div>
@@ -67,28 +76,45 @@
 
             <div class="file-cell">
               <% if (row.hasFile) { %>
-                <div class="file-name">原文件：<%= row.originalName %></div>
-                <div class="file-name">存储名：<%= row.storedName %></div>
-                <a href="/innovation/file/<%= row.key %>" target="_blank">下载查看</a>
+                <div class="file-name"><%= row.originalName %></div>
               <% } else { %>
                 <span class="muted">未上传</span>
               <% } %>
             </div>
 
             <div>
-              <% if (submission.status === statusMap.SUBMITTED) { %>
+              <% if (isLocked) { %>
                 <span class="muted">已锁定，不可修改</span>
+              <% } else if (row.hasFile) { %>
+                <button
+                  type="button"
+                  class="danger-btn"
+                  data-confirm-form-button
+                  data-confirm-form-id="delete-file-<%= row.key %>"
+                >
+                  删除
+                </button>
               <% } else { %>
-                <label class="upload-action">
-                  <%= row.hasFile ? '修改' : '上传' %>
-                  <input
-                    type="file"
-                    name="<%= row.inputName %>"
-                    data-ext="<%= row.ext %>"
-                    data-max-mb="<%= row.maxMb %>"
-                    accept="<%= row.ext %>"
-                  />
-                </label>
+                <div class="upload-tools">
+                  <label class="upload-action">
+                    上传
+                    <input
+                      type="file"
+                      name="<%= row.inputName %>"
+                      data-ext="<%= row.ext %>"
+                      data-max-mb="<%= row.maxMb %>"
+                      accept="<%= row.ext %>"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    class="ghost-btn upload-clear-btn is-hidden"
+                    data-clear-file-button
+                    data-target-input="<%= row.inputName %>"
+                  >
+                    清除
+                  </button>
+                </div>
                 <div class="muted" data-file-text="<%= row.inputName %>"></div>
               <% } %>
             </div>
@@ -96,25 +122,32 @@
         <% }) %>
       </div>
 
-      <div class="field-group">
-        <label class="field-label">提交日期</label>
-        <input
-          class="input"
-          value="<%= submission.submitted_at ? new Date(submission.submitted_at).toLocaleString('zh-CN', { hour12: false }) : '最终提交后系统自动生成' %>"
-          readonly
-        />
-      </div>
-
       <div class="actions-row">
-        <% if (submission.status === statusMap.SUBMITTED) { %>
+        <% if (isLocked) { %>
           <button type="button" class="ghost-btn" disabled>已提交锁定</button>
         <% } else { %>
-          <button type="submit" data-action="save" class="ghost-btn">保存草稿</button>
-          <button type="submit" data-action="submit" class="primary-btn">最终提交</button>
+          <a class="ghost-btn" href="/select-direction">上一步（重新选择方向）</a>
+          <button type="button" data-action="save" class="ghost-btn">保存草稿</button>
+          <button type="button" data-action="submit" class="primary-btn">最终提交</button>
         <% } %>
-        <a class="text-btn" href="/downloads/integrity-template">下载诚信承诺书模板</a>
+        <a class="text-btn" href="/downloads/integrity-template">下载诚信承诺书Word模板</a>
       </div>
     </form>
+
+    <% if (!isLocked) { %>
+      <% fileRows.forEach((row) => { %>
+        <% if (row.hasFile) { %>
+          <form
+            id="delete-file-<%= row.key %>"
+            method="post"
+            action="/innovation/file/<%= row.key %>/delete"
+            class="hidden-form"
+            data-confirm-message="确认删除“<%= row.label %>”吗？删除后需要重新上传。"
+            data-confirm-title="请确认删除"
+          ></form>
+        <% } %>
+      <% }) %>
+    <% } %>
   </section>
 </main>
 

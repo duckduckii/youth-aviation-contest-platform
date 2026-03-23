@@ -1,0 +1,192 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <% const generatedAtText = new Date(stats.generatedAt).toLocaleString('zh-CN', { hour12: false }); %>
+  <% const maxTrend = Math.max(1, ...stats.recentTrend.map((item) => item.count)); %>
+
+  <section class="hero">
+    <div class="hero-banner">
+      <div>
+        <h1 class="hero-title">管理员统计看板</h1>
+        <div class="hero-subtitle">聚合报名、赛道与提交流程关键数据，更新时间：<%= generatedAtText %></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">报名总览 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+
+    <div class="dashboard-kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">参赛账号总数</div>
+        <div class="kpi-value"><%= stats.overview.totalUsers %></div>
+        <div class="kpi-meta">不含管理员账号</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">已确认赛道</div>
+        <div class="kpi-value"><%= stats.overview.directionSelected %></div>
+        <div class="kpi-meta">确认率 <%= stats.overview.directionSelectedRate %>%</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">知识类报名</div>
+        <div class="kpi-value"><%= stats.overview.knowledgeUsers %></div>
+        <div class="kpi-meta">当前已锁定知识类</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">创新设计类报名</div>
+        <div class="kpi-value"><%= stats.overview.innovationUsers %></div>
+        <div class="kpi-meta">可进入材料提交流程</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">未确认赛道</div>
+        <div class="kpi-value"><%= stats.overview.directionUnselected %></div>
+        <div class="kpi-meta">登录后需先选择赛道</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-label">创新类最终提交</div>
+        <div class="kpi-value"><%= stats.innovation.submitted %></div>
+        <div class="kpi-meta">提交率 <%= stats.innovation.submittedRate %>%</div>
+      </div>
+    </div>
+
+    <div class="dashboard-progress-list">
+      <div class="progress-item">
+        <div class="progress-head">
+          <span>赛道确认进度</span>
+          <strong><%= stats.overview.directionSelected %>/<%= stats.overview.totalUsers %></strong>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" style="width: <%= Math.min(100, stats.overview.directionSelectedRate) %>%"></div>
+        </div>
+      </div>
+
+      <div class="progress-item">
+        <div class="progress-head">
+          <span>创新类最终提交进度</span>
+          <strong><%= stats.innovation.submitted %>/<%= stats.innovation.total %></strong>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill success" style="width: <%= Math.min(100, stats.innovation.submittedRate) %>%"></div>
+        </div>
+      </div>
+
+      <div class="progress-item">
+        <div class="progress-head">
+          <span>创新类必填材料完整度</span>
+          <strong><%= stats.innovation.requiredComplete %>/<%= stats.innovation.total %></strong>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill warning" style="width: <%= Math.min(100, stats.innovation.requiredCompleteRate) %>%"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">创新设计类进度 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+
+    <div class="dashboard-kpi-grid mini">
+      <div class="kpi-card compact">
+        <div class="kpi-label">未开始</div>
+        <div class="kpi-value"><%= stats.innovation.notStarted %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">草稿中</div>
+        <div class="kpi-value"><%= stats.innovation.draft %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">已提交</div>
+        <div class="kpi-value"><%= stats.innovation.submitted %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">今日新增提交</div>
+        <div class="kpi-value"><%= stats.innovation.submittedToday %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">昨日新增提交</div>
+        <div class="kpi-value"><%= stats.innovation.submittedYesterday %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">必填材料完整</div>
+        <div class="kpi-value"><%= stats.innovation.requiredComplete %></div>
+      </div>
+    </div>
+
+    <div class="dashboard-kpi-grid mini">
+      <div class="kpi-card compact">
+        <div class="kpi-label">报告已上传</div>
+        <div class="kpi-value"><%= stats.innovation.reportUploaded %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">证明材料1已上传</div>
+        <div class="kpi-value"><%= stats.innovation.proof1Uploaded %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">证明材料2已上传</div>
+        <div class="kpi-value"><%= stats.innovation.proof2Uploaded %></div>
+      </div>
+      <div class="kpi-card compact">
+        <div class="kpi-label">诚信承诺书已上传</div>
+        <div class="kpi-value"><%= stats.innovation.integrityUploaded %></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">近7天最终提交趋势 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+    <div class="trend-list">
+      <% stats.recentTrend.forEach((item) => { %>
+        <div class="trend-row">
+          <div class="trend-day"><%= item.label %></div>
+          <div class="trend-bar">
+            <div class="trend-fill" style="width: <%= Math.round((item.count / maxTrend) * 100) %>%"></div>
+          </div>
+          <div class="trend-value"><%= item.count %></div>
+        </div>
+      <% }) %>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">最近账号动态 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+    <div class="table-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th>报名号</th>
+            <th>赛道</th>
+            <th>创新类状态</th>
+            <th>作品题目</th>
+            <th>最终提交时间</th>
+            <th>最近更新时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (stats.recentActivity.length === 0) { %>
+            <tr>
+              <td colspan="6" class="table-empty">暂无数据</td>
+            </tr>
+          <% } %>
+          <% stats.recentActivity.forEach((row) => { %>
+            <tr>
+              <td><%= row.registrationNo %></td>
+              <td><span class="status-pill neutral"><%= row.directionLabel %></span></td>
+              <td><span class="status-pill <%= row.submissionClass %>"><%= row.submissionLabel %></span></td>
+              <td title="<%= row.workTitle %>"><%= row.workTitle %></td>
+              <td><%= row.submittedAt ? new Date(row.submittedAt).toLocaleString('zh-CN', { hour12: false }) : '--' %></td>
+              <td><%= row.latestAt ? new Date(row.latestAt).toLocaleString('zh-CN', { hour12: false }) : '--' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

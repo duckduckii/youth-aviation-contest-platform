@@ -1,0 +1,33 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <%- include('partials/flash') %>
+
+  <section class="hero">
+    <div class="hero-banner">
+      <div>
+        <h1 class="hero-title">知识类确认</h1>
+        <div class="hero-subtitle">最终提交后将不可再修改</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-card">
+    <h2>知识类最终提交</h2>
+    <p class="section-tip">请确认当前选择无误后再最终提交知识类报名。</p>
+
+    <form class="knowledge-confirm-form" method="post" action="/knowledge/confirm">
+      <div class="note-box">
+        你即将最终提交知识类报名。提交完成后，将不能再修改比赛方向或进行其他编辑操作。
+      </div>
+
+      <div class="actions-row">
+        <a class="ghost-btn" href="/select-direction">上一步</a>
+        <button type="submit" class="primary-btn">最终提交</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

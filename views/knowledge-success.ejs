@@ -1,0 +1,30 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <section class="hero">
+    <div class="hero-banner">
+      <div>
+        <h1 class="hero-title">提交成功</h1>
+        <div class="hero-subtitle">已报名知识类比赛</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">报名状态 <img src="/public/assets/icon-zs1.png" alt="" /></h2>
+    <p class="section-tip">
+      你已完成知识类比赛报名确认，当前赛道已锁定。
+    </p>
+
+    <div class="note-box">
+      报名结果：已报名知识类比赛。
+    </div>
+
+    <div class="actions-row">
+      <a class="primary-btn" href="/knowledge">进入知识类页面</a>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

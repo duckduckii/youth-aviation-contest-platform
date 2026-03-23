@@ -24,19 +24,27 @@ async function removeFile(filePath) {
 }
 
 function timestampToken() {
-  return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17);
 }
 
-function buildStoredName(fieldKey, workTitle) {
-  const safeTitle = sanitizeWorkTitle(workTitle) || '未命名作品';
-  if (fieldKey === 'report') return `${safeTitle}.pdf`;
-  if (fieldKey === 'proof1') return `${safeTitle}证明材料1.pdf`;
-  if (fieldKey === 'proof2') return `${safeTitle}证明材料2.mp4`;
-  return `${safeTitle}诚信承诺书.pdf`;
+function archiveFieldToken(fieldKey) {
+  if (fieldKey === 'report') return 'report';
+  if (fieldKey === 'proof1') return 'proof1';
+  if (fieldKey === 'proof2') return 'proof2';
+  return 'integrity';
 }
 
-function buildPhysicalName(fieldKey, ext) {
-  return `${fieldKey}_${timestampToken()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+function buildArchiveBaseName(registrationNo, fieldKey) {
+  const safeRegistrationNo = String(registrationNo || 'unknown').replace(/[^0-9a-zA-Z_-]/g, '');
+  return `${safeRegistrationNo}_innovation_${archiveFieldToken(fieldKey)}_${timestampToken()}`;
+}
+
+function buildStoredName(registrationNo, fieldKey, ext) {
+  return `${buildArchiveBaseName(registrationNo, fieldKey)}${ext}`;
+}
+
+function buildPhysicalName(registrationNo, fieldKey, ext) {
+  return `${buildArchiveBaseName(registrationNo, fieldKey)}${ext}`;
 }
 
 module.exports = {

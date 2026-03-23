@@ -9,6 +9,7 @@ const { ensureAuth, ensureGuest } = require('./middleware/auth');
 const { TRACKS, TRACK_LABELS, SUBMISSION_STATUS } = require('./constants');
 const userService = require('./services/user-service');
 const submissionService = require('./services/submission-service');
+const adminDashboardService = require('./services/admin-dashboard-service');
 const {
   sanitizeWorkTitle,
   extOf,
@@ -43,7 +44,7 @@ const FILE_RULES = {
     label: '其他证明材料2',
     ext: '.mp4',
     maxMb: config.upload.maxProof2Mb,
-    required: true,
+    required: false,
   },
   integrity: {
     key: 'integrity',
@@ -68,6 +69,11 @@ const upload = multer({
 const uploadFields = upload.fields(
   ALL_RULES.map((rule) => ({ name: rule.inputName, maxCount: 1 })),
 );
+const INTEGRITY_TEMPLATE_PATH = path.join(process.cwd(), 'public', 'downloads', '诚信承诺书.docx');
+
+function isAdminUser(user) {
+  return Boolean(user && user.registration_no === 'admin');
+}
 
 function setFlash(req, type, message) {
   req.session.flash = { type, message };
@@ -96,6 +102,37 @@ function validateUploadedFile(file, rule) {
   return null;
 }
 
+function normalizeOriginalName(value) {
+  if (!value) return '';
+  if (/[\u4e00-\u9fff]/.test(value)) return value;
+
+  try {
+    const decoded = Buffer.from(value, 'latin1').toString('utf8');
+    if (decoded.includes('�')) return value;
+    if (/[\u4e00-\u9fff]/.test(decoded)) return decoded;
+    return value;
+  } catch (error) {
+    return value;
+  }
+}
+
+function resolveDisplayFileName(submission, prefix) {
+  const originalName = normalizeOriginalName(submission[`${prefix}_original_name`]);
+  if (originalName) {
+    return originalName;
+  }
+
+  if (submission[`${prefix}_stored_name`]) {
+    return submission[`${prefix}_stored_name`];
+  }
+
+  if (submission[`${prefix}_file_path`]) {
+    return path.basename(submission[`${prefix}_file_path`]);
+  }
+
+  return '';
+}
+
 function buildFileColumns(prefix, filePath, originalName, storedName) {
   return {
     [`${prefix}_file_path`]: filePath,
@@ -105,8 +142,16 @@ function buildFileColumns(prefix, filePath, originalName, storedName) {
   };
 }
 
+function displayRequiredLabel(rule) {
+  if (rule.key === 'proof1') {
+    return '其他证明材料';
+  }
+  return rule.label;
+}
+
 function hasAllRequiredFiles(submission) {
   for (const rule of ALL_RULES) {
+    if (!rule.required) continue;
     if (!submission[`${rule.key}_file_path`]) {
       return false;
     }
@@ -115,11 +160,14 @@ function hasAllRequiredFiles(submission) {
 }
 
 function missingRequiredLabels(submission) {
-  return ALL_RULES.filter((rule) => !submission[`${rule.key}_file_path`]).map((rule) => rule.label);
+  return ALL_RULES
+    .filter((rule) => rule.required && !submission[`${rule.key}_file_path`])
+    .map((rule) => displayRequiredLabel(rule));
 }
 
 async function ensureTrack(req, res, next, expectedTrack) {
   if (!req.currentUser) return res.redirect('/login');
+  if (isAdminUser(req.currentUser)) return res.redirect('/admin/dashboard');
 
   if (!req.currentUser.direction) {
     return res.redirect('/select-direction');
@@ -130,6 +178,27 @@ async function ensureTrack(req, res, next, expectedTrack) {
   }
 
   return next();
+}
+
+function ensureAdmin(req, res, next) {
+  if (!isAdminUser(req.currentUser)) {
+    setFlash(req, 'error', '仅管理员可访问统计看板');
+    return res.redirect('/portal');
+  }
+  return next();
+}
+
+async function hasSubmittedInnovation(userId) {
+  const submission = await submissionService.getByUserId(userId);
+  return Boolean(submission && submission.status === SUBMISSION_STATUS.SUBMITTED);
+}
+
+async function canChangeDirection(user) {
+  if (!user) return false;
+  if (user.direction === TRACKS.KNOWLEDGE) {
+    return false;
+  }
+  return !(await hasSubmittedInnovation(user.id));
 }
 
 app.set('view engine', 'ejs');
@@ -154,6 +223,7 @@ app.use('/public', express.static(path.join(process.cwd(), 'public')));
 app.use(async (req, res, next) => {
   res.locals.flash = consumeFlash(req);
   res.locals.currentUser = null;
+  res.locals.isAdmin = false;
   res.locals.trackLabels = TRACK_LABELS;
 
   if (!req.session.userId) {
@@ -169,6 +239,7 @@ app.use(async (req, res, next) => {
 
     req.currentUser = user;
     res.locals.currentUser = user;
+    res.locals.isAdmin = isAdminUser(user);
     return next();
   } catch (error) {
     return next(error);
@@ -264,6 +335,10 @@ app.post('/change-password', ensureAuth, async (req, res) => {
 });
 
 app.get('/portal', ensureAuth, (req, res) => {
+  if (isAdminUser(req.currentUser)) {
+    return res.redirect('/admin/dashboard');
+  }
+
   if (!req.currentUser.direction) {
     return res.redirect('/select-direction');
   }
@@ -275,48 +350,151 @@ app.get('/portal', ensureAuth, (req, res) => {
   return res.redirect('/innovation');
 });
 
-app.get('/select-direction', ensureAuth, (req, res) => {
-  if (req.currentUser.direction) {
-    return res.redirect('/portal');
+app.get('/admin/dashboard', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    const stats = await adminDashboardService.getDashboardStats();
+    return res.render('admin-dashboard', {
+      pageTitle: '后台统计看板',
+      stats,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/select-direction', ensureAuth, async (req, res, next) => {
+  if (isAdminUser(req.currentUser)) {
+    setFlash(req, 'error', '管理员账号不参与报名流程，请使用 test 账号进行流程测试');
+    return res.redirect('/admin/dashboard');
   }
 
-  return res.render('select-direction', {
-    pageTitle: '选择比赛方向',
-    tracks: [TRACKS.KNOWLEDGE, TRACKS.INNOVATION],
-  });
+  try {
+    const allowed = await canChangeDirection(req.currentUser);
+    if (!allowed) {
+      setFlash(req, 'error', '该作品已最终提交，不能再修改赛道');
+      return res.redirect('/portal');
+    }
+
+    delete req.session.pendingDirection;
+
+    return res.render('select-direction', {
+      pageTitle: '选择比赛方向',
+      tracks: [TRACKS.KNOWLEDGE, TRACKS.INNOVATION],
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 app.post('/select-direction', ensureAuth, async (req, res) => {
   const direction = req.body.direction;
+  const adminMode = isAdminUser(req.currentUser);
 
   if (![TRACKS.KNOWLEDGE, TRACKS.INNOVATION].includes(direction)) {
     setFlash(req, 'error', '请选择有效的比赛方向');
     return res.redirect('/select-direction');
   }
 
-  if (req.currentUser.direction) {
-    setFlash(req, 'error', '比赛方向已经确认，无法修改');
-    return res.redirect('/portal');
+  if (adminMode) {
+    setFlash(req, 'error', '管理员账号不参与报名流程，请使用 test 账号进行流程测试');
+    return res.redirect('/admin/dashboard');
   }
 
   try {
-    const updated = await userService.setTrackOnce(req.currentUser.id, direction);
-    if (!updated) {
-      setFlash(req, 'error', '比赛方向已锁定，无法重复选择');
+    const allowed = await canChangeDirection(req.currentUser);
+    if (!allowed) {
+      setFlash(req, 'error', '该作品已最终提交，不能再修改赛道');
       return res.redirect('/portal');
     }
 
-    setFlash(req, 'success', `已确认赛道：${TRACK_LABELS[direction]}`);
-    return res.redirect('/portal');
+    if (direction === TRACKS.KNOWLEDGE) {
+      req.session.pendingDirection = TRACKS.KNOWLEDGE;
+      return res.redirect('/knowledge/confirm');
+    }
+
+    await userService.setTrack(req.currentUser.id, direction);
+
+    setFlash(
+      req,
+      'success',
+      `已选择赛道：${TRACK_LABELS[direction]}（可在选择页重新调整）`,
+    );
+    return res.redirect('/innovation');
   } catch (error) {
     setFlash(req, 'error', `选择失败：${error.message}`);
     return res.redirect('/select-direction');
   }
 });
 
+app.get('/knowledge/confirm', ensureAuth, async (req, res, next) => {
+  if (isAdminUser(req.currentUser)) {
+    setFlash(req, 'error', '管理员账号不参与报名流程，请使用 test 账号进行流程测试');
+    return res.redirect('/admin/dashboard');
+  }
+
+  try {
+    const allowed = await canChangeDirection(req.currentUser);
+    if (!allowed) {
+      setFlash(req, 'error', '该作品已最终提交，不能再修改赛道');
+      return res.redirect('/portal');
+    }
+
+    if (req.session.pendingDirection !== TRACKS.KNOWLEDGE) {
+      return res.redirect('/select-direction');
+    }
+
+    return res.render('knowledge-confirm', {
+      pageTitle: '知识类确认',
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/knowledge/confirm', ensureAuth, async (req, res) => {
+  const adminMode = isAdminUser(req.currentUser);
+
+  if (adminMode) {
+    setFlash(req, 'error', '管理员账号不参与报名流程，请使用 test 账号进行流程测试');
+    return res.redirect('/admin/dashboard');
+  }
+
+  if (req.session.pendingDirection !== TRACKS.KNOWLEDGE) {
+    setFlash(req, 'error', '请先完成比赛方向选择');
+    return res.redirect('/select-direction');
+  }
+
+  try {
+    const allowed = await canChangeDirection(req.currentUser);
+    if (!allowed) {
+      setFlash(req, 'error', '该作品已最终提交，不能再修改赛道');
+      return res.redirect('/portal');
+    }
+
+    await userService.setTrack(req.currentUser.id, TRACKS.KNOWLEDGE);
+    delete req.session.pendingDirection;
+
+    setFlash(
+      req,
+      'success',
+      `已最终提交：${TRACK_LABELS[TRACKS.KNOWLEDGE]}`,
+    );
+    return res.redirect('/knowledge/success');
+  } catch (error) {
+    setFlash(req, 'error', `确认失败：${error.message}`);
+    return res.redirect('/knowledge/confirm');
+  }
+});
+
+app.get('/knowledge/success', ensureAuth, (req, res, next) => ensureTrack(req, res, next, TRACKS.KNOWLEDGE), (req, res) => {
+  res.render('knowledge-success', {
+    pageTitle: '提交成功',
+  });
+});
+
 app.get('/knowledge', ensureAuth, (req, res, next) => ensureTrack(req, res, next, TRACKS.KNOWLEDGE), (req, res) => {
   res.render('knowledge', {
-    pageTitle: '知识类提交流程',
+    pageTitle: '知识类赛道',
   });
 });
 
@@ -334,7 +512,7 @@ app.get('/innovation', ensureAuth, (req, res, next) => ensureTrack(req, res, nex
         maxMb: rule.maxMb,
         required: rule.required,
         hasFile: Boolean(submission[`${prefix}_file_path`]),
-        originalName: submission[`${prefix}_original_name`],
+        originalName: resolveDisplayFileName(submission, prefix),
         storedName: submission[`${prefix}_stored_name`],
         uploadedAt: submission[`${prefix}_uploaded_at`],
       };
@@ -352,6 +530,13 @@ app.get('/innovation', ensureAuth, (req, res, next) => ensureTrack(req, res, nex
 });
 
 app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
+  const adminMode = isAdminUser(req.currentUser);
+
+  if (adminMode) {
+    setFlash(req, 'error', '管理员账号不参与报名流程，请使用 test 账号进行流程测试');
+    return res.redirect('/admin/dashboard');
+  }
+
   if (!req.currentUser || req.currentUser.direction !== TRACKS.INNOVATION) {
     setFlash(req, 'error', '当前账号未进入创新设计类赛道');
     return res.redirect('/portal');
@@ -402,7 +587,7 @@ app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
         const file = incomingFiles[rule.inputName]?.[0];
         if (!file) continue;
 
-        const physicalName = buildPhysicalName(rule.key, rule.ext);
+        const physicalName = buildPhysicalName(req.currentUser.registration_no, rule.key, rule.ext);
         const absolutePath = path.join(userDir, physicalName);
         await fs.writeFile(absolutePath, file.buffer);
 
@@ -410,8 +595,8 @@ app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
 
         newFileMetaMap[rule.key] = {
           newPath: absolutePath,
-          originalName: file.originalname,
-          storedName: buildStoredName(rule.key, workTitle),
+          originalName: normalizeOriginalName(file.originalname),
+          storedName: buildStoredName(req.currentUser.registration_no, rule.key, rule.ext),
           oldPath: submission[`${rule.key}_file_path`],
         };
       }
@@ -456,7 +641,11 @@ app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
       }
 
       await submissionService.markSubmitted(req.currentUser.id);
-      setFlash(req, 'success', '材料已最终提交，系统已锁定，不可再修改');
+      setFlash(
+        req,
+        'success',
+        '材料已最终提交，系统已锁定，不可再修改',
+      );
       return res.redirect('/innovation');
     }
 
@@ -469,6 +658,10 @@ app.post('/innovation', ensureAuth, uploadFields, async (req, res) => {
 });
 
 app.get('/innovation/file/:fieldKey', ensureAuth, async (req, res, next) => {
+  if (isAdminUser(req.currentUser)) {
+    return res.redirect('/admin/dashboard');
+  }
+
   if (!req.currentUser || req.currentUser.direction !== TRACKS.INNOVATION) {
     return res.redirect('/portal');
   }
@@ -482,33 +675,69 @@ app.get('/innovation/file/:fieldKey', ensureAuth, async (req, res, next) => {
   try {
     const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
     const pathKey = `${rule.key}_file_path`;
-    const nameKey = `${rule.key}_stored_name`;
-
     if (!submission[pathKey]) {
       return res.status(404).send('该文件尚未上传');
     }
 
-    return res.download(submission[pathKey], submission[nameKey] || undefined);
+    setFlash(req, 'error', '已上传文件不提供下载，请删除后重新上传');
+    return res.redirect('/innovation');
   } catch (error) {
     return next(error);
   }
 });
 
-app.get('/downloads/integrity-template', (req, res) => {
-  const content = [
-    '全国青少年安全与应急科普创新大赛',
-    '创新设计赛（航模方向）诚信承诺书（模板）',
-    '',
-    '本人承诺：提交的作品为原创，材料真实有效，未侵犯他人合法权益。',
-    '',
-    '学生签字：______________',
-    '指导教师签字：______________',
-    '日期：______年____月____日',
-  ].join('\n');
+app.post('/innovation/file/:fieldKey/delete', ensureAuth, async (req, res) => {
+  if (isAdminUser(req.currentUser)) {
+    return res.redirect('/admin/dashboard');
+  }
 
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''诚信承诺书模板.txt");
-  res.send(content);
+  if (!req.currentUser || req.currentUser.direction !== TRACKS.INNOVATION) {
+    return res.redirect('/portal');
+  }
+
+  const { fieldKey } = req.params;
+  const rule = FILE_RULES[fieldKey];
+  if (!rule) {
+    setFlash(req, 'error', '文件类型不存在');
+    return res.redirect('/innovation');
+  }
+
+  try {
+    const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
+    if (submission.status === SUBMISSION_STATUS.SUBMITTED) {
+      setFlash(req, 'error', '该作品已最终提交，不能再修改');
+      return res.redirect('/innovation');
+    }
+
+    const pathKey = `${rule.key}_file_path`;
+    if (!submission[pathKey]) {
+      setFlash(req, 'error', '该文件尚未上传，无需删除');
+      return res.redirect('/innovation');
+    }
+
+    await removeFile(submission[pathKey]);
+    await submissionService.updateByUserId(req.currentUser.id, {
+      [`${rule.key}_file_path`]: null,
+      [`${rule.key}_original_name`]: null,
+      [`${rule.key}_stored_name`]: null,
+      [`${rule.key}_uploaded_at`]: null,
+    });
+
+    setFlash(req, 'success', `已删除${rule.label}，请重新上传`);
+    return res.redirect('/innovation');
+  } catch (error) {
+    setFlash(req, 'error', `删除失败：${error.message}`);
+    return res.redirect('/innovation');
+  }
+});
+
+app.get('/downloads/integrity-template', async (req, res, next) => {
+  try {
+    await fs.access(INTEGRITY_TEMPLATE_PATH);
+    return res.download(INTEGRITY_TEMPLATE_PATH, '诚信承诺书.docx');
+  } catch (error) {
+    return next(error);
+  }
 });
 
 app.use((error, req, res, next) => {

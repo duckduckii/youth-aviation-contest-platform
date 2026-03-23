@@ -7,15 +7,15 @@
   <section class="hero">
     <div class="hero-banner">
       <div>
-        <h1 class="hero-title">请选择比赛方向</h1>
-        <div class="hero-subtitle">确认后不可更改，请根据实际参赛类型慎重选择</div>
+        <h1 class="hero-title">全国青少年安全与应急科普创新大赛方案创新设计赛航模方向作品提交</h1>
+        <div class="hero-subtitle">请选择比赛方向（单选）</div>
       </div>
     </div>
   </section>
 
   <section class="form-card">
-    <h2>比赛方向选择</h2>
-    <div class="note-box">系统将根据你的选择锁定提交流程，后续登录会直接进入对应页面。</div>
+    <h2>选择方向</h2>
+    <div class="note-box">请选择知识类或创新设计类。创新设计类在最终提交前可返回本页面重新调整；知识类确认后结果立即生效并锁定。</div>
 
     <form class="direction-form" method="post" action="/select-direction">
       <div class="track-options">
@@ -23,7 +23,7 @@
           <input type="radio" name="direction" value="KNOWLEDGE" data-label="知识类比赛" required />
           <div>
             <div class="track-card-title">知识类</div>
-            <div class="track-card-desc">适用于知识竞答/理论类赛道（当前仅提供占位说明页面）</div>
+            <div class="track-card-desc">进入知识类确认页面，确认后报名结果立即生效</div>
           </div>
         </label>
 
@@ -31,13 +31,13 @@
           <input type="radio" name="direction" value="INNOVATION" data-label="创新设计类比赛" required />
           <div>
             <div class="track-card-title">创新设计类</div>
-            <div class="track-card-desc">进入航模方向作品上传流程，支持草稿保存与最终提交</div>
+            <div class="track-card-desc">直接进入航模方向作品上传页面，可返回重选赛道</div>
           </div>
         </label>
       </div>
 
       <div class="actions-row">
-        <button type="submit" class="primary-btn">确认选择</button>
+        <button type="submit" class="primary-btn">下一步</button>
       </div>
     </form>
   </section>

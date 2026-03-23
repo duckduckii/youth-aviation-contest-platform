@@ -48,10 +48,27 @@ async function setTrackOnce(userId, track) {
   return result.affectedRows > 0;
 }
 
+async function setTrack(userId, track) {
+  if (![TRACKS.KNOWLEDGE, TRACKS.INNOVATION].includes(track)) {
+    throw new Error('无效赛道类型');
+  }
+
+  const result = await query(
+    'UPDATE users SET direction = :track WHERE id = :userId',
+    {
+      track,
+      userId,
+    },
+  );
+
+  return result.affectedRows > 0;
+}
+
 module.exports = {
   findByRegistrationNo,
   findById,
   verifyLogin,
   changePassword,
   setTrackOnce,
+  setTrack,
 };

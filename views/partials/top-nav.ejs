@@ -5,16 +5,21 @@
       <div class="brand-title">全国青少年安全与应急科普创新大赛</div>
     </a>
 
-    <div class="account-actions">
-      <% if (currentUser) { %>
+    <% if (currentUser) { %>
+      <div class="account-actions">
         <span class="account-pill">账号：<%= currentUser.registration_no %></span>
+        <% if (currentUser.direction) { %>
+          <span class="account-pill">已报名：<%= trackLabels[currentUser.direction] %>比赛</span>
+        <% } %>
+        <% if (isAdmin) { %>
+          <span class="account-pill">管理员模式</span>
+          <a class="text-btn" href="/admin/dashboard">统计看板</a>
+        <% } %>
         <a class="text-btn" href="/change-password">修改密码</a>
         <form class="form-inline" method="post" action="/logout">
           <button type="submit" class="danger-btn">退出登录</button>
         </form>
-      <% } else { %>
-        <a class="primary-btn" href="/login">登录</a>
-      <% } %>
-    </div>
+      </div>
+    <% } %>
   </div>
 </header>
