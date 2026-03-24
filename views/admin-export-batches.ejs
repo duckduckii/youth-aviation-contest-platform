@@ -1,0 +1,293 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <% const exportState = exportData || {}; %>
+  <% const config = exportState.config || null; %>
+  <% const batches = exportState.batches || []; %>
+  <% const tailCount = exportState.tailCount || 0; %>
+  <% const tailBatch = exportState.tailBatch || null; %>
+  <% const totalSubmitted = exportState.totalSubmitted || 0; %>
+  <% const barSegments = exportState.barSegments || []; %>
+
+  <section class="section-card">
+    <div class="batch-page-head">
+      <h1 class="section-title">资料导出</h1>
+      <div class="batch-summary-pills">
+        <span class="account-pill">已提交 <%= totalSubmitted %> 份</span>
+        <span class="account-pill">固定 Batch <%= batches.length %> 个</span>
+        <span class="account-pill">动态尾批 <%= tailCount %> 份</span>
+      </div>
+    </div>
+
+    <div class="batch-config-row">
+      <div class="batch-config-inline">
+        <form method="post" action="/admin/export-batches/config">
+          <div class="field-group compact">
+            <label class="field-label" for="batchSize">每个 Batch 资料数</label>
+            <input
+              class="input batch-size-input"
+              id="batchSize"
+              name="batchSize"
+              type="number"
+              min="1"
+              step="1"
+              value="<%= config ? config.batch_size : 1000 %>"
+              required
+            />
+          </div>
+
+          <div class="actions-row compact">
+            <button class="primary-btn" type="submit"><%= config ? '保存并刷新 Batch' : '初始化 Batch' %></button>
+          </div>
+
+          <% if (config) { %>
+            <div class="batch-config-lock">当前默认值：每批 <strong><%= config.batch_size %></strong> 份资料</div>
+          <% } %>
+        </form>
+      </div>
+    </div>
+
+    <div class="batch-bar-wrap">
+      <div class="batch-bar-head">
+        <span>总量示意</span>
+        <strong>
+          已形成 <%= batches.length %> 个固定 Batch，最后动态 Batch 当前 <%= tailCount %> 份
+        </strong>
+      </div>
+
+      <div class="batch-bar-track">
+        <% if (barSegments.length === 0) { %>
+          <div class="muted">当前还没有可展示的 Batch 分段</div>
+        <% } %>
+        <% barSegments.forEach((segment) => { %>
+          <% const width = totalSubmitted > 0 ? Math.max((segment.count / totalSubmitted) * 100, 8) : 8; %>
+          <div
+            class="batch-bar-segment <%= segment.type === 'tail' ? 'tail' : (segment.type === 'downloaded' ? 'downloaded' : 'frozen') %>"
+            style="width: <%= width %>%"
+          >
+            <% if (segment.type === 'tail') { %>
+              <div>动态尾批</div>
+            <% } else { %>
+              <div>Batch <%= String(segment.batchNo).padStart(3, '0') %></div>
+            <% } %>
+            <div><%= segment.count %> 份</div>
+          </div>
+        <% }) %>
+      </div>
+
+      <div class="batch-bar-legend">
+        <span class="frozen">固定 Batch</span>
+        <span class="downloaded">已下载 Batch</span>
+        <span class="tail">最后动态 Batch</span>
+      </div>
+
+      <div class="batch-tail-note">
+        最后动态 Batch 会随着新增最终提交自动增长；达到设定份数后，系统会自动封成下一个固定 Batch。
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="batch-toolbar">
+      <div>
+        <h2 class="section-title">Batch 台账</h2>
+        <p class="section-tip">支持全选和多选批量下载，也支持每个 Batch 单独下载管理。</p>
+      </div>
+
+      <div class="actions-row">
+        <button class="primary-btn" type="button" id="download-selected-btn">下载选中 Batch</button>
+      </div>
+    </div>
+
+    <div class="batch-select-tools">
+      <label>
+        <input type="checkbox" id="select-all-batches" />
+        全选 Batch
+      </label>
+      <span id="selected-batch-count">当前选中 0 个 Batch</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Batch</th>
+            <th>状态</th>
+            <th>包含资料</th>
+            <th>资料份数</th>
+            <th>时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (batches.length === 0) { %>
+            <tr>
+              <td colspan="7" class="table-empty">当前还没有固定 Batch</td>
+            </tr>
+          <% } %>
+          <% batches.forEach((batch) => { %>
+            <tr data-batch-row="<%= batch.id %>">
+              <td>
+                <input class="batch-checkbox" type="checkbox" value="<%= batch.id %>" data-batch-id="<%= batch.id %>" data-download-url="/admin/export-batches/<%= batch.id %>/download" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded" />
+              </td>
+              <td>Batch <%= String(batch.batch_no).padStart(3, '0') %></td>
+              <td>
+                <span class="status-pill js-batch-status <%= batch.status === 'DOWNLOADED' ? 'submitted' : (batch.status === 'FAILED' ? 'failed' : (batch.archive_path ? 'draft' : 'pending')) %>">
+                  <%= batch.status === 'DOWNLOADED' ? '已下载' : (batch.status === 'FAILED' ? '打包失败' : (batch.archive_path ? '可下载' : '待打包')) %>
+                </span>
+              </td>
+              <td><%= batch.start_registration_no %> ~ <%= batch.end_registration_no %></td>
+              <td><%= batch.item_count %></td>
+              <td class="batch-time-cell">
+                <span class="js-batch-time">
+                <% if (batch.downloaded_at) { %>
+                  下载 <%= new Date(batch.downloaded_at).toLocaleString('zh-CN', { hour12: false }) %>
+                <% } else if (batch.packaged_at) { %>
+                  打包完成 <%= new Date(batch.packaged_at).toLocaleString('zh-CN', { hour12: false }) %>
+                <% } else { %>
+                  <span class="muted">点击下载时打包</span>
+                <% } %>
+                </span>
+              </td>
+              <td class="batch-actions-cell">
+                <div class="table-actions">
+                  <a class="text-btn js-batch-download-link" href="/admin/export-batches/<%= batch.id %>/download" data-batch-id="<%= batch.id %>" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded">下载压缩包</a>
+                  <a class="text-btn" href="/admin/export-batches/<%= batch.id %>/manifest">下载清单</a>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+          <% if (tailBatch) { %>
+            <tr data-batch-row="tail">
+              <td>
+                <input class="batch-checkbox" type="checkbox" value="tail" data-batch-id="tail" data-download-url="/admin/export-batches/tail/download" data-mark-url="" />
+              </td>
+              <td>动态尾批</td>
+              <td>
+                <span class="status-pill neutral js-batch-status">动态中</span>
+              </td>
+              <td><%= tailBatch.start_registration_no %> ~ <%= tailBatch.end_registration_no %></td>
+              <td><%= tailBatch.item_count %></td>
+              <td class="batch-time-cell">
+                <span class="js-batch-time">实时更新</span>
+              </td>
+              <td class="batch-actions-cell">
+                <div class="table-actions">
+                  <a class="text-btn js-batch-download-link" href="/admin/export-batches/tail/download" data-batch-id="tail" data-mark-url="">下载压缩包</a>
+                  <a class="text-btn" href="/admin/export-batches/tail/manifest">下载清单</a>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  (() => {
+    const selectAll = document.getElementById('select-all-batches');
+    const selectedCount = document.getElementById('selected-batch-count');
+    const downloadSelectedBtn = document.getElementById('download-selected-btn');
+    const checkboxes = Array.from(document.querySelectorAll('.batch-checkbox:not([disabled])'));
+    const downloadLinks = Array.from(document.querySelectorAll('.js-batch-download-link'));
+
+    function currentTimeText() {
+      const now = new Date();
+      return `下载 ${now.toLocaleString('zh-CN', { hour12: false })}`;
+    }
+
+    function markBatchRowDownloaded(batchId) {
+      if (!batchId) return;
+      const row = document.querySelector(`[data-batch-row="${batchId}"]`);
+      if (!row) return;
+
+      const status = row.querySelector('.js-batch-status');
+      const time = row.querySelector('.js-batch-time');
+      if (status) {
+        status.classList.remove('pending', 'draft', 'failed');
+        status.classList.add('submitted');
+        status.textContent = '已下载';
+      }
+      if (time) {
+        time.innerHTML = '';
+        time.textContent = currentTimeText();
+      }
+    }
+
+    function persistDownloaded(markUrl) {
+      if (!markUrl) return;
+      window.fetch(markUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      }).catch(() => {});
+    }
+
+    function updateSelectedSummary() {
+      const checked = checkboxes.filter((item) => item.checked);
+      selectedCount.textContent = `当前选中 ${checked.length} 个 Batch`;
+      if (selectAll) {
+        selectAll.checked = checked.length > 0 && checked.length === checkboxes.length;
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', () => {
+        checkboxes.forEach((checkbox) => {
+          checkbox.checked = selectAll.checked;
+        });
+        updateSelectedSummary();
+      });
+    }
+
+    checkboxes.forEach((checkbox) => {
+      checkbox.addEventListener('change', updateSelectedSummary);
+    });
+
+    if (downloadSelectedBtn) {
+      downloadSelectedBtn.addEventListener('click', () => {
+        const checked = checkboxes.filter((item) => item.checked);
+        if (checked.length === 0) {
+          window.alert('请先选择至少一个 Batch');
+          return;
+        }
+
+        checked.forEach((checkbox, index) => {
+          const url = checkbox.dataset.downloadUrl;
+          const batchId = checkbox.dataset.batchId;
+          const markUrl = checkbox.dataset.markUrl;
+          window.setTimeout(() => {
+            if (markUrl) {
+              markBatchRowDownloaded(batchId);
+              persistDownloaded(markUrl);
+            }
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            window.setTimeout(() => iframe.remove(), 3000);
+          }, index * 400);
+        });
+      });
+    }
+
+    downloadLinks.forEach((link) => {
+      link.addEventListener('click', () => {
+        if (link.dataset.markUrl) {
+          markBatchRowDownloaded(link.dataset.batchId);
+          persistDownloaded(link.dataset.markUrl);
+        }
+      });
+    });
+
+    updateSelectedSummary();
+  })();
+</script>
+
+<%- include('partials/footer') %>

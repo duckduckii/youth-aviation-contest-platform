@@ -1,4 +1,5 @@
-const fs = require('fs/promises');
+const fs = require('fs');
+const fsPromises = require('fs/promises');
 const path = require('path');
 const OSS = require('ali-oss');
 
@@ -7,6 +8,10 @@ const { ensureDir, removeFile } = require('../utils/file-helpers');
 
 function isOssDriver() {
   return config.storage.driver === 'oss';
+}
+
+function isLocalAbsolutePath(reference) {
+  return Boolean(reference) && path.isAbsolute(reference);
 }
 
 function assertOssConfigured() {
@@ -67,13 +72,27 @@ async function signDirectUpload({ registrationNo, fieldKey, storedName, contentT
 
 async function putLocalFile({ absolutePath, buffer }) {
   await ensureDir(path.dirname(absolutePath));
-  await fs.writeFile(absolutePath, buffer);
+  await fsPromises.writeFile(absolutePath, buffer);
+}
+
+async function putStoredBuffer({ reference, buffer }) {
+  if (!reference) {
+    throw new Error('存储引用不能为空');
+  }
+
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
+    await putLocalFile({ absolutePath: reference, buffer });
+    return;
+  }
+
+  const client = createOssClient();
+  await client.put(reference, Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer));
 }
 
 async function removeStoredObject(reference) {
   if (!reference) return;
 
-  if (!isOssDriver()) {
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
     await removeFile(reference);
     return;
   }
@@ -91,9 +110,9 @@ async function removeStoredObject(reference) {
 async function hasStoredObject(reference) {
   if (!reference) return false;
 
-  if (!isOssDriver()) {
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
     try {
-      await fs.access(reference);
+      await fsPromises.access(reference);
       return true;
     } catch (error) {
       return false;
@@ -112,6 +131,54 @@ async function hasStoredObject(reference) {
   }
 }
 
+async function getStoredObjectSize(reference) {
+  if (!reference) return 0;
+
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
+    try {
+      const stat = await fsPromises.stat(reference);
+      return Number(stat.size) || 0;
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0;
+      throw error;
+    }
+  }
+
+  const client = createOssClient();
+  const result = await client.head(reference);
+  const value = result?.res?.headers?.['content-length'];
+  return Number.parseInt(value, 10) || 0;
+}
+
+async function createReadStream(reference) {
+  if (!reference) {
+    throw new Error('文件引用不能为空');
+  }
+
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
+    return fs.createReadStream(reference);
+  }
+
+  const client = createOssClient();
+  const result = await client.getStream(reference);
+  return result.stream;
+}
+
+async function fileExists(reference) {
+  if (!reference) return false;
+
+  if (!isOssDriver() || isLocalAbsolutePath(reference)) {
+    try {
+      await fsPromises.access(reference);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  return hasStoredObject(reference);
+}
+
 function isExpectedObjectKey(registrationNo, fieldKey, objectKey) {
   return String(objectKey || '').startsWith(`${objectPrefix(registrationNo, fieldKey)}/`);
 }
@@ -119,9 +186,13 @@ function isExpectedObjectKey(registrationNo, fieldKey, objectKey) {
 module.exports = {
   isOssDriver,
   putLocalFile,
+  putStoredBuffer,
   signDirectUpload,
   removeStoredObject,
   hasStoredObject,
+  getStoredObjectSize,
+  createReadStream,
+  fileExists,
   buildObjectKey,
   isExpectedObjectKey,
 };

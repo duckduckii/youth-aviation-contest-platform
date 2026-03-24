@@ -11,6 +11,8 @@ const { TRACKS, TRACK_LABELS, SUBMISSION_STATUS } = require('./constants');
 const userService = require('./services/user-service');
 const submissionService = require('./services/submission-service');
 const adminDashboardService = require('./services/admin-dashboard-service');
+const exportBatchService = require('./services/export-batch-service');
+const { runExportBatch, runTailExport } = require('./services/export-batch-runner-service');
 const storageService = require('./services/storage-service');
 const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
 const {
@@ -139,11 +141,12 @@ function resolveDisplayFileName(submission, prefix) {
   return '';
 }
 
-function buildFileColumns(prefix, filePath, originalName, storedName) {
+function buildFileColumns(prefix, filePath, originalName, storedName, fileSize) {
   return {
     [`${prefix}_file_path`]: filePath,
     [`${prefix}_original_name`]: originalName,
     [`${prefix}_stored_name`]: storedName,
+    [`${prefix}_file_size`]: fileSize,
     [`${prefix}_uploaded_at`]: new Date(),
   };
 }
@@ -167,6 +170,21 @@ function parseUploadedFilesPayload(raw) {
   } catch (error) {
     return {};
   }
+}
+
+function formatBytes(value) {
+  const size = Number(value) || 0;
+  if (size <= 0) return '0 B';
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let current = size;
+  let index = 0;
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024;
+    index += 1;
+  }
+  const digits = current >= 100 || index === 0 ? 0 : current >= 10 ? 1 : 2;
+  return `${current.toFixed(digits)} ${units[index]}`;
 }
 
 function hasAllRequiredFiles(submission) {
@@ -397,6 +415,149 @@ app.get('/admin/dashboard', ensureAuth, ensureAdmin, async (req, res, next) => {
       pageTitle: '后台统计看板',
       stats,
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/admin/export-batches', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    await exportBatchService.syncFrozenBatches();
+
+    const exportData = await exportBatchService.getPageData();
+    return res.render('admin-export-batches', {
+      pageTitle: '资料导出',
+      exportData,
+      formatBytes,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/admin/export-batches/config', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    const batchSize = Number.parseInt(req.body.batchSize, 10);
+    if (!Number.isFinite(batchSize) || batchSize <= 0) {
+      setFlash(req, 'error', '请输入有效的每个 Batch 资料数');
+      return res.redirect('/admin/export-batches');
+    }
+
+    await exportBatchService.rebuildFrozenBatches({
+      batchSize,
+      createdBy: req.currentUser.id,
+    });
+
+    setFlash(req, 'success', `已按每批 ${batchSize} 份资料重新刷新 Batch 列表`);
+    return res.redirect('/admin/export-batches');
+  } catch (error) {
+    setFlash(req, 'error', `刷新 Batch 规则失败：${error.message}`);
+    return res.redirect('/admin/export-batches');
+  }
+});
+
+app.post('/admin/export-batches/:batchId/downloaded', ensureAuth, ensureAdmin, async (req, res) => {
+  const wantsJson = req.get('X-Requested-With') === 'XMLHttpRequest';
+  try {
+    const batch = await exportBatchService.getBatchById(req.params.batchId);
+    if (!batch) {
+      if (wantsJson) {
+        return res.status(404).json({ message: 'Batch 不存在' });
+      }
+      setFlash(req, 'error', 'Batch 不存在');
+      return res.redirect('/admin/export-batches');
+    }
+    if (!batch.archive_path) {
+      if (wantsJson) {
+        return res.status(409).json({ message: '当前 Batch 尚未完成打包，不能标记已下载' });
+      }
+      setFlash(req, 'error', '当前 Batch 尚未完成打包，不能标记已下载');
+      return res.redirect('/admin/export-batches');
+    }
+    await exportBatchService.markDownloaded(batch.id);
+    if (wantsJson) {
+      return res.status(204).end();
+    }
+    setFlash(req, 'success', `已标记 Batch ${String(batch.batch_no).padStart(3, '0')} 为已下载`);
+    return res.redirect('/admin/export-batches');
+  } catch (error) {
+    if (wantsJson) {
+      return res.status(500).json({ message: `标记下载失败：${error.message}` });
+    }
+    setFlash(req, 'error', `标记下载失败：${error.message}`);
+    return res.redirect('/admin/export-batches');
+  }
+});
+
+app.get('/admin/export-batches/tail/download', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    const result = await runTailExport();
+    return res.download(result.archivePath, path.basename(result.archivePath));
+  } catch (error) {
+    if (error.message === '当前没有动态尾批资料') {
+      return res.status(409).send(error.message);
+    }
+    return next(error);
+  }
+});
+
+app.get('/admin/export-batches/tail/manifest', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    const result = await runTailExport();
+    return res.download(result.manifestPath, path.basename(result.manifestPath));
+  } catch (error) {
+    if (error.message === '当前没有动态尾批资料') {
+      return res.status(409).send(error.message);
+    }
+    return next(error);
+  }
+});
+
+app.get('/admin/export-batches/:batchId/download', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    let batch = await exportBatchService.getBatchById(req.params.batchId);
+    if (!batch) {
+      return res.status(404).send('Batch 不存在');
+    }
+
+    const archiveReady = batch.archive_path && await storageService.fileExists(batch.archive_path);
+    if (!archiveReady) {
+      await runExportBatch(batch.id);
+      batch = await exportBatchService.getBatchById(batch.id);
+    }
+
+    if (!batch?.archive_path) {
+      return res.status(409).send('当前 Batch 打包失败，请稍后重试');
+    }
+
+    if (batch.status !== exportBatchService.EXPORT_BATCH_STATUS.DOWNLOADED) {
+      await exportBatchService.markDownloaded(batch.id);
+    }
+
+    return res.download(batch.archive_path, path.basename(batch.archive_path));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/admin/export-batches/:batchId/manifest', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    let batch = await exportBatchService.getBatchById(req.params.batchId);
+    if (!batch) {
+      return res.status(404).send('Batch 不存在');
+    }
+
+    const manifestReady = batch.manifest_path && await storageService.fileExists(batch.manifest_path);
+    if (!manifestReady) {
+      await runExportBatch(batch.id);
+      batch = await exportBatchService.getBatchById(batch.id);
+    }
+
+    if (!batch?.manifest_path) {
+      return res.status(409).send('当前 Batch 清单生成失败，请稍后重试');
+    }
+
+    return res.download(batch.manifest_path, path.basename(batch.manifest_path));
   } catch (error) {
     return next(error);
   }
@@ -703,6 +864,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
             payload.objectKey,
             normalizeOriginalName(payload.originalName),
             payload.storedName || path.basename(payload.objectKey),
+            Number(payload.size) || 0,
           ),
         );
       }
@@ -759,6 +921,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
             newPath: absolutePath,
             originalName: normalizeOriginalName(file.originalname),
             storedName: buildStoredName(req.currentUser.registration_no, rule.key, rule.ext),
+            fileSize: file.size,
             oldPath: submission[`${rule.key}_file_path`],
           };
         }
@@ -777,7 +940,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
         await storageService.removeStoredObject(meta.oldPath);
         Object.assign(
           updates,
-          buildFileColumns(rule.key, meta.newPath, meta.originalName, meta.storedName),
+          buildFileColumns(rule.key, meta.newPath, meta.originalName, meta.storedName, meta.fileSize),
         );
       }
 
@@ -804,6 +967,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
       }
 
       await submissionService.markSubmitted(req.currentUser.id);
+      await exportBatchService.syncFrozenBatches();
       setFlash(
         req,
         'success',
@@ -883,6 +1047,7 @@ app.post('/innovation/file/:fieldKey/delete', ensureAuth, async (req, res) => {
       [`${rule.key}_file_path`]: null,
       [`${rule.key}_original_name`]: null,
       [`${rule.key}_stored_name`]: null,
+      [`${rule.key}_file_size`]: null,
       [`${rule.key}_uploaded_at`]: null,
     });
 
