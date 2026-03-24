@@ -22,7 +22,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-DEFAULT_DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.m.daocloud.io}"
+export DEFAULT_DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.m.daocloud.io}"
 
 install_docker_engine() {
   echo "[2/5] 安装 Docker Engine"
