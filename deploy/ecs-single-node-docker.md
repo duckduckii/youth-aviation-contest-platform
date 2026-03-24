@@ -181,7 +181,7 @@ cp deploy/templates/env.docker.local.example .env.production
 | `TRUST_PROXY` | 信任反向代理头 | ECS 前有 Nginx / SLB 时写 `true` |
 | `DB_HOST` | MySQL 主机 | Docker 单机部署固定写 `mysql` |
 | `DB_PORT` | MySQL 端口 | 固定写 `3306` |
-| `DB_USER` | MySQL 用户 | 当前单机方案通常写 `root` |
+| `DB_USER` | MySQL 用户 | 推荐写 `contest_app`，避免应用直接使用 `root` |
 | `DB_PASSWORD` | 应用访问 MySQL 密码 | 你自行设置的数据库密码 |
 | `DB_NAME` | 数据库名 | 推荐 `youth_aviation_contest` |
 | `DB_CONNECTION_LIMIT` | MySQL 连接池大小 | 常用 `20` 或 `30` |

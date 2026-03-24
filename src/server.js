@@ -71,7 +71,7 @@ const upload = multer({
 const uploadFields = upload.fields(
   ALL_RULES.map((rule) => ({ name: rule.inputName, maxCount: 1 })),
 );
-const INTEGRITY_TEMPLATE_PATH = path.join(process.cwd(), 'public', 'downloads', '诚信承诺书.docx');
+const INTEGRITY_TEMPLATE_PATH = path.join(process.cwd(), 'public', 'downloads', '诚信承诺书模板.pdf');
 
 function innovationUploadMiddleware(req, res, next) {
   return uploadFields(req, res, next);
@@ -897,7 +897,7 @@ app.post('/innovation/file/:fieldKey/delete', ensureAuth, async (req, res) => {
 app.get('/downloads/integrity-template', async (req, res, next) => {
   try {
     await fs.access(INTEGRITY_TEMPLATE_PATH);
-    return res.download(INTEGRITY_TEMPLATE_PATH, '诚信承诺书.docx');
+    return res.download(INTEGRITY_TEMPLATE_PATH, '诚信承诺书模板.pdf');
   } catch (error) {
     return next(error);
   }
