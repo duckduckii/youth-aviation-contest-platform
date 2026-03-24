@@ -2,7 +2,7 @@
 set -eu
 
 if [ ! -f .env.production ]; then
-  echo '.env.production 不存在，请先复制 .env.production.example 并填写生产配置'
+  echo '.env.production 不存在，请先从 deploy/templates/env.docker.oss.example 或 deploy/templates/env.docker.local.example 复制生成'
   exit 1
 fi
 

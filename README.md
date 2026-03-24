@@ -14,53 +14,42 @@
 - 诚信承诺书模板下载
 - 参考目标站点风格的首页横幅、蓝色主题、卡片化UI
 
-## 1. 环境要求
+## 1. 推荐部署方式
 
-- Node.js 20+（当前项目在 Node 22 测试）
-- MySQL 8/9
-- Redis 7+
+当前仓库只保留一套部署路径：`Docker Compose` 单机部署，并支持两种存储模式：
 
-## 2. 安装 MySQL（macOS，Homebrew）
+- `oss`：浏览器直传阿里云 OSS，ECS 只负责签名和元数据入库
+- `local`：文件写入容器挂载卷 `uploads_data`
 
-```bash
-brew install mysql
-brew services start mysql
-```
+对应模板文件：
 
-如果你的 root 用户需要密码，请在 `.env` 中配置 `DB_PASSWORD`。
+- `deploy/templates/env.docker.oss.example`
+- `deploy/templates/env.docker.local.example`
 
-## 3. 初始化项目
+实际发布时统一使用根目录的 `.env.production`，从以上模板中任选一份复制后再修改。
 
-```bash
-cp .env.example .env
-npm install
-npm run db:prepare
-```
-
-`db:prepare` 会自动：
-
-- 创建数据库（默认：`youth_aviation_contest`）
-- 创建 `users`、`submissions` 两张表
-- 写入演示账号
-
-启动前请确保 Redis 可用，默认连接 `127.0.0.1:6379`。
-
-## 4. 启动
+## 2. 快速发布
 
 ```bash
-npm run dev
+cp deploy/templates/env.docker.oss.example .env.production
+# 或
+# cp deploy/templates/env.docker.local.example .env.production
+
+./deploy/release.sh
 ```
 
-浏览器打开：
+发布后检查：
 
-- `http://localhost:3000`
-- 健康检查：`http://localhost:3000/healthz`
+```bash
+docker compose --env-file .env.production ps
+curl http://127.0.0.1:3000/healthz
+```
 
-## 5. 演示账号
+## 3. 演示账号
 
 - 学生测试账号范围：`202600010001` 到 `202600010100`
 
-## 6. 目录结构
+## 4. 目录结构
 
 ```text
 .
@@ -82,21 +71,17 @@ npm run dev
 └── uploads/               # 上传文件目录（按报名号分文件夹）
 ```
 
-## 7. 关键业务说明
+## 5. 关键业务说明
 
-- 最终提交时强制要求：
-  - 作品题目
-  - 作品研究设计报告（PDF）
-  - 其他证明材料1（PDF，<=30MB）
-  - 其他证明材料2（MP4，<=100MB）
-  - 诚信承诺书（PDF）
+- 最终提交时强制要求以下内容：作品题目、作品研究设计报告（PDF）、其他证明材料1（PDF，<=30MB）、其他证明材料2（MP4，<=100MB）、诚信承诺书（PDF）
 - 文件按统一归档规则落盘存储，前台仅展示用户上传文件名。
 - 最终提交后状态变为 `SUBMITTED`，页面锁定不允许修改。
 - `STORAGE_DRIVER=local` 时，文件保存到服务器本地 `uploads/`
 - `STORAGE_DRIVER=oss` 时，浏览器直传 OSS，ECS 只负责签名和元数据入库
 - Session 统一存储在 Redis，支持后续多实例部署
 
-## 8. 部署
+## 6. 部署文档
 
-- ECS + OSS 部署说明见：[deploy/ecs-oss-deploy.md](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/ecs-oss-deploy.md)
-- 单 ECS + Docker + 本机 MySQL/Redis + OSS 说明见：[deploy/ecs-single-node-docker.md](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/ecs-single-node-docker.md)
+- 统一部署手册见：[deploy/ecs-single-node-docker.md](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/ecs-single-node-docker.md)
+- `oss` 模板：[deploy/templates/env.docker.oss.example](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/templates/env.docker.oss.example)
+- `local` 模板：[deploy/templates/env.docker.local.example](/Users/yuqi/Workspace/youth-aviation-contest-platform/deploy/templates/env.docker.local.example)
