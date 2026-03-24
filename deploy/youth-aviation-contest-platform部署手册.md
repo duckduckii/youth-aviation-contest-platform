@@ -13,7 +13,7 @@
 
 ## 2. 新建 ECS 实例
 
-![新建 ECS](./新建ecs.png)
+![新建 ECS](./images/新建ecs.png)
 
 建议：
 
@@ -23,7 +23,7 @@
 
 ## 3. 安全组开放端口
 
-![开放端口](./开放端口.png)
+![开放端口](./images/开放端口.png)
 
 最少建议放行：
 
@@ -43,11 +43,11 @@
 
 ### 4.1 购买 OSS 资源包
 
-![对象存储 OSS 资源包购买](./对象存储%20OSS%20资源包购买.png)
+![对象存储 OSS 资源包购买](./images/对象存储%20OSS%20资源包购买.png)
 
 ### 4.2 创建 Bucket
 
-![创建 Bucket](./创建bucket.png)
+![创建 Bucket](./images/创建bucket.png)
 
 创建完成后，记录以下信息：
 
@@ -72,15 +72,15 @@ https://oss-cn-hangzhou-internal.aliyuncs.com
 
 #### 4.3.1 进入 RAM 控制台
 
-![进入 RAM 控制台](./进入RAM控制台.png)
+![进入 RAM 控制台](./images/进入RAM控制台.png)
 
 #### 4.3.2 创建用户
 
-![创建用户](./创建用户.png)
+![创建用户](./images/创建用户.png)
 
 #### 4.3.3 配置用户信息
 
-![配置用户信息](./配置用户信息.png)
+![配置用户信息](./images/配置用户信息.png)
 
 创建完成后，记录：
 
@@ -94,19 +94,19 @@ https://oss-cn-hangzhou-internal.aliyuncs.com
 
 #### 4.3.4 增加用户授权
 
-![重新进入用户配置页面](./重新进入用户配置页面.png)
+![重新进入用户配置页面](./images/重新进入用户配置页面.png)
 
-![新增授权](./新增授权.png)
+![新增授权](./images/新增授权.png)
 
-![新增 OSS 权限](./新增OSS权限.png)
+![新增 OSS 权限](./images/新增OSS权限.png)
 
 如果是快速演示环境，可以直接授予 `AliyunOSSFullAccess`。如果是正式环境，建议改为仅当前 Bucket 所需的最小权限。
 
 ### 4.4 配置 Bucket 跨域规则
 
-![Bucket 新增跨域规则](./bucket新增跨域规则.png)
+![Bucket 新增跨域规则](./images/bucket新增跨域规则.png)
 
-![配置跨域规则](./配置跨域规则.png)
+![配置跨域规则](./images/配置跨域规则.png)
 
 建议至少包含：
 
@@ -257,7 +257,7 @@ curl http://127.0.0.1:3000/healthz
 http://ECS公网IP:3000
 ```
 
-![访问测试](./访问测试.png)
+![访问测试](./images/访问测试.png)
 
 首次发布后会自动初始化以下测试账号：
 
@@ -270,7 +270,7 @@ http://ECS公网IP:3000
 
 先在 Bucket 概览中确认内网端点：
 
-![Bucket 内网端点](./bucket内网端点.png)
+![Bucket 内网端点](./images/bucket内网端点.png)
 
 然后在 ECS 终端执行：
 
