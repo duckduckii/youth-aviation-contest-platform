@@ -1,4 +1,10 @@
-const bcrypt = require('bcryptjs');
+let bcrypt;
+
+try {
+  bcrypt = require('bcrypt');
+} catch (error) {
+  bcrypt = require('bcryptjs');
+}
 
 async function hashPassword(rawPassword) {
   return bcrypt.hash(rawPassword, 10);

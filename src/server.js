@@ -16,6 +16,16 @@ const { runExportBatch, runTailExport } = require('./services/export-batch-runne
 const storageService = require('./services/storage-service');
 const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
 const {
+  readSessionUser,
+  writeSessionUser,
+  clearSessionUser,
+} = require('./utils/session-user');
+const {
+  readSessionSubmission,
+  writeSessionSubmission,
+  clearSessionSubmission,
+} = require('./utils/session-submission');
+const {
   sanitizeWorkTitle,
   extOf,
   ensureDir,
@@ -91,6 +101,14 @@ function consumeFlash(req) {
   const flash = req.session.flash || null;
   delete req.session.flash;
   return flash;
+}
+
+function syncSubmissionSnapshot(req, submission) {
+  if (!submission) {
+    clearSessionSubmission(req);
+    return null;
+  }
+  return writeSessionSubmission(req, submission);
 }
 
 function toBytes(mb) {
@@ -233,6 +251,9 @@ async function hasSubmittedInnovation(userId) {
 
 async function canChangeDirection(user) {
   if (!user) return false;
+  if (!user.direction) {
+    return true;
+  }
   if (user.direction === TRACKS.KNOWLEDGE) {
     return false;
   }
@@ -280,16 +301,27 @@ app.use(async (req, res, next) => {
     return next();
   }
 
+  const sessionUser = readSessionUser(req);
+  if (sessionUser) {
+    req.currentUser = sessionUser;
+    res.locals.currentUser = sessionUser;
+    res.locals.isAdmin = isAdminUser(sessionUser);
+    return next();
+  }
+
   try {
     const user = await userService.findById(req.session.userId);
     if (!user) {
+      clearSessionUser(req);
+      clearSessionSubmission(req);
       req.session.destroy(() => {});
       return res.redirect('/login');
     }
 
-    req.currentUser = user;
-    res.locals.currentUser = user;
-    res.locals.isAdmin = isAdminUser(user);
+    const snapshot = writeSessionUser(req, user);
+    req.currentUser = snapshot;
+    res.locals.currentUser = snapshot;
+    res.locals.isAdmin = isAdminUser(snapshot);
     return next();
   } catch (error) {
     return next(error);
@@ -334,6 +366,7 @@ app.post('/login', ensureGuest, async (req, res) => {
     }
 
     req.session.userId = user.id;
+    writeSessionUser(req, user);
     return res.redirect('/portal');
   } catch (error) {
     setFlash(req, 'error', `登录失败：${error.message}`);
@@ -374,8 +407,7 @@ app.post('/change-password', ensureAuth, async (req, res) => {
   }
 
   try {
-    const user = await userService.findById(req.session.userId);
-    const verified = await userService.verifyLogin(user.registration_no, oldPassword);
+    const verified = await userService.verifyLogin(req.currentUser.registration_no, oldPassword);
     if (!verified) {
       setFlash(req, 'error', '旧密码错误');
       return res.redirect('/change-password');
@@ -614,6 +646,12 @@ app.post('/select-direction', ensureAuth, async (req, res) => {
     }
 
     await userService.setTrack(req.currentUser.id, direction);
+    const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
+    writeSessionUser(req, {
+      ...req.currentUser,
+      direction,
+    });
+    syncSubmissionSnapshot(req, submission);
 
     setFlash(
       req,
@@ -673,6 +711,11 @@ app.post('/knowledge/confirm', ensureAuth, async (req, res) => {
     }
 
     await userService.setTrack(req.currentUser.id, TRACKS.KNOWLEDGE);
+    writeSessionUser(req, {
+      ...req.currentUser,
+      direction: TRACKS.KNOWLEDGE,
+    });
+    clearSessionSubmission(req);
     delete req.session.pendingDirection;
 
     setFlash(
@@ -702,6 +745,7 @@ app.get('/knowledge', ensureAuth, (req, res, next) => ensureTrack(req, res, next
 app.get('/innovation', ensureAuth, (req, res, next) => ensureTrack(req, res, next, TRACKS.INNOVATION), async (req, res, next) => {
   try {
     const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
+    syncSubmissionSnapshot(req, submission);
 
     const fileRows = ALL_RULES.map((rule) => {
       const prefix = rule.key;
@@ -759,7 +803,10 @@ app.post('/api/uploads/sign', ensureAuth, async (req, res) => {
   }
 
   try {
-    const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
+    const submission = readSessionSubmission(req);
+    if (!submission?.exists) {
+      return res.status(409).json({ message: '请先进入创新设计类页面后再上传文件' });
+    }
     if (submission.status === SUBMISSION_STATUS.SUBMITTED) {
       return res.status(409).json({ message: '该作品已最终提交，不能再修改' });
     }
@@ -953,6 +1000,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
       ...submission,
       ...updates,
     };
+    syncSubmissionSnapshot(req, latestSubmission);
 
     if (action === 'submit') {
       if (!latestSubmission.work_title) {
@@ -967,6 +1015,10 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
       }
 
       await submissionService.markSubmitted(req.currentUser.id);
+      syncSubmissionSnapshot(req, {
+        ...latestSubmission,
+        status: SUBMISSION_STATUS.SUBMITTED,
+      });
       await exportBatchService.syncFrozenBatches();
       setFlash(
         req,
@@ -1050,6 +1102,7 @@ app.post('/innovation/file/:fieldKey/delete', ensureAuth, async (req, res) => {
       [`${rule.key}_file_size`]: null,
       [`${rule.key}_uploaded_at`]: null,
     });
+    syncSubmissionSnapshot(req, submission);
 
     setFlash(req, 'success', `已删除${rule.label}，请重新上传`);
     return res.redirect('/innovation');
