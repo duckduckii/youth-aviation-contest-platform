@@ -205,6 +205,30 @@ function formatBytes(value) {
   return `${current.toFixed(digits)} ${units[index]}`;
 }
 
+function logRequest(req, res, startedAt) {
+  if (!config.app.requestLogEnabled || req.path === '/healthz') {
+    return;
+  }
+
+  const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+  const level = durationMs >= config.app.requestLogSlowMs || res.statusCode >= 500 ? 'warn' : 'info';
+  const sessionUserId = req.session?.userId || '-';
+  const contentLength = res.getHeader('content-length') || '-';
+
+  console[level](
+    [
+      '[http]',
+      req.method,
+      req.originalUrl,
+      `status=${res.statusCode}`,
+      `duration_ms=${durationMs.toFixed(1)}`,
+      `user_id=${sessionUserId}`,
+      `ip=${req.ip || req.socket?.remoteAddress || '-'}`,
+      `bytes=${contentLength}`,
+    ].join(' '),
+  );
+}
+
 function hasAllRequiredFiles(submission) {
   for (const rule of ALL_RULES) {
     if (!rule.required) continue;
@@ -290,6 +314,14 @@ app.use(
 );
 
 app.use('/public', express.static(path.join(process.cwd(), 'public')));
+
+app.use((req, res, next) => {
+  const startedAt = process.hrtime.bigint();
+  res.on('finish', () => {
+    logRequest(req, res, startedAt);
+  });
+  next();
+});
 
 app.use(async (req, res, next) => {
   res.locals.flash = consumeFlash(req);
@@ -803,10 +835,10 @@ app.post('/api/uploads/sign', ensureAuth, async (req, res) => {
   }
 
   try {
-    const submission = readSessionSubmission(req);
-    if (!submission?.exists) {
-      return res.status(409).json({ message: '请先进入创新设计类页面后再上传文件' });
-    }
+    const cachedSubmission = readSessionSubmission(req);
+    const submission = cachedSubmission?.exists
+      ? cachedSubmission
+      : syncSubmissionSnapshot(req, await submissionService.getOrCreateByUserId(req.currentUser.id));
     if (submission.status === SUBMISSION_STATUS.SUBMITTED) {
       return res.status(409).json({ message: '该作品已最终提交，不能再修改' });
     }
@@ -869,51 +901,55 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
 
     const validationErrors = [];
     if (storageService.isOssDriver()) {
-      const oldReferencesToDelete = [];
+      const validationResults = await Promise.all(
+        Object.entries(uploadedFilesPayload).map(async ([fieldKey, payload]) => {
+          const rule = FILE_RULES[fieldKey];
+          if (!rule || !payload || typeof payload !== 'object') {
+            return { error: '上传元数据不合法，请重新上传文件' };
+          }
 
-      for (const [fieldKey, payload] of Object.entries(uploadedFilesPayload)) {
-        const rule = FILE_RULES[fieldKey];
-        if (!rule || !payload || typeof payload !== 'object') {
-          validationErrors.push('上传元数据不合法，请重新上传文件');
+          if (!storageService.isExpectedObjectKey(req.currentUser.registration_no, rule.key, payload.objectKey)) {
+            return { error: `${rule.label}对象路径不合法，请重新上传` };
+          }
+
+          if (extOf(payload.originalName) !== rule.ext) {
+            return { error: `${rule.label}仅支持${rule.ext.toUpperCase()}文件` };
+          }
+
+          if (Number(payload.size) > toBytes(rule.maxMb)) {
+            return { error: `${rule.label}大小不能超过${rule.maxMb}MB` };
+          }
+
+          const exists = await storageService.hasStoredObject(payload.objectKey);
+          if (!exists) {
+            return { error: `${rule.label}尚未上传成功，请重新上传` };
+          }
+
+          const oldReference = submission[`${rule.key}_file_path`];
+          return {
+            oldReference: oldReference && oldReference !== payload.objectKey ? oldReference : null,
+            columns: buildFileColumns(
+              rule.key,
+              payload.objectKey,
+              normalizeOriginalName(payload.originalName),
+              payload.storedName || path.basename(payload.objectKey),
+              Number(payload.size) || 0,
+            ),
+          };
+        }),
+      );
+
+      const oldReferencesToDelete = validationResults
+        .map((result) => result.oldReference)
+        .filter(Boolean);
+
+      for (const result of validationResults) {
+        if (result.error) {
+          validationErrors.push(result.error);
           continue;
         }
 
-        if (!storageService.isExpectedObjectKey(req.currentUser.registration_no, rule.key, payload.objectKey)) {
-          validationErrors.push(`${rule.label}对象路径不合法，请重新上传`);
-          continue;
-        }
-
-        if (extOf(payload.originalName) !== rule.ext) {
-          validationErrors.push(`${rule.label}仅支持${rule.ext.toUpperCase()}文件`);
-          continue;
-        }
-
-        if (Number(payload.size) > toBytes(rule.maxMb)) {
-          validationErrors.push(`${rule.label}大小不能超过${rule.maxMb}MB`);
-          continue;
-        }
-
-        const exists = await storageService.hasStoredObject(payload.objectKey);
-        if (!exists) {
-          validationErrors.push(`${rule.label}尚未上传成功，请重新上传`);
-          continue;
-        }
-
-        const oldReference = submission[`${rule.key}_file_path`];
-        if (oldReference && oldReference !== payload.objectKey) {
-          oldReferencesToDelete.push(oldReference);
-        }
-
-        Object.assign(
-          updates,
-          buildFileColumns(
-            rule.key,
-            payload.objectKey,
-            normalizeOriginalName(payload.originalName),
-            payload.storedName || path.basename(payload.objectKey),
-            Number(payload.size) || 0,
-          ),
-        );
+        Object.assign(updates, result.columns);
       }
 
       if (validationErrors.length > 0) {
@@ -923,10 +959,7 @@ app.post('/innovation', ensureAuth, innovationUploadMiddleware, async (req, res)
 
       if (Object.keys(updates).length > 0) {
         await submissionService.updateByUserId(req.currentUser.id, updates);
-        for (const reference of oldReferencesToDelete) {
-          // eslint-disable-next-line no-await-in-loop
-          await storageService.removeStoredObject(reference);
-        }
+        await Promise.all(oldReferencesToDelete.map((reference) => storageService.removeStoredObject(reference)));
       }
     } else {
       for (const rule of ALL_RULES) {
@@ -1143,12 +1176,19 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   await ensureRedisConnected(redisClient);
-  app.listen(config.app.port, config.app.host, () => {
+  return app.listen(config.app.port, config.app.host, () => {
     console.log(`服务已启动：http://${config.app.host}:${config.app.port}`);
   });
 }
 
-startServer().catch((error) => {
-  console.error('服务启动失败：', error.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error('服务启动失败：', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  startServer,
+};

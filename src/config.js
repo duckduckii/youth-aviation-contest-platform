@@ -22,6 +22,9 @@ module.exports = {
   app: {
     host: process.env.HOST || '0.0.0.0',
     port: intFromEnv('PORT', 3000),
+    workers: intFromEnv('APP_WORKERS', 0),
+    requestLogEnabled: boolFromEnv('ACCESS_LOG_ENABLED', true),
+    requestLogSlowMs: intFromEnv('ACCESS_LOG_SLOW_MS', 1500),
     sessionSecret: process.env.SESSION_SECRET || 'contest-platform-dev-secret',
     trustProxy: boolFromEnv('TRUST_PROXY', false),
   },

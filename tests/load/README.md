@@ -26,6 +26,8 @@ bash tests/load/run-oss-submit-1000.sh
    - POST `/innovation` 最终提交
 5. 归档 `k6` 输出到 `reports/oss-submit-1000-时间戳/`
 
+线上部署建议保持 `nginx -> app(cluster workers)` 拓扑，再从公网机器发压测。这样公网入口、会话、应用 worker 和 OSS 直传链路都在同一条真实路径上。
+
 ## 常用命令
 
 只准备 1000 个压测账号：

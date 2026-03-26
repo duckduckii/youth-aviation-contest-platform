@@ -18,5 +18,5 @@ fi
 $COMPOSE build app
 $COMPOSE up -d mysql redis
 $COMPOSE --profile init run --rm app-init
-$COMPOSE up -d app
+$COMPOSE up -d app nginx
 $COMPOSE ps
