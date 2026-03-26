@@ -13,6 +13,8 @@ ENV_FILE=".env.production"
 SEED="true"
 PASSWORD_MODE="last8"
 FIXED_PASSWORD="LoadTest@123"
+INCLUDE_VIDEO="false"
+PREPARE_FIXTURES="true"
 K6_NETWORK=""
 PER_VU_ITERS="1"
 MAX_DURATION="10m"
@@ -33,6 +35,8 @@ Options:
   -seed <true|false>        Whether to seed users before test. Default: true
   -password-mode <value>    last8 or fixed. Default: last8
   -fixed-password <value>   Used when password-mode=fixed
+  -include-video <bool>     Whether to upload optional MP4 material. Default: false
+  -prepare-fixtures <bool>  Generate load-test PDF/MP4 fixtures before running. Default: true
   -k6-network <value>       Docker network used by k6 fallback
   -per-vu-iters <value>     Iterations per VU. Default: 1
   -max-duration <value>     Max duration for k6 scenario. Default: 10m
@@ -43,6 +47,7 @@ Examples:
   bash test.sh -type baseline -num 50
   bash test.sh -type oss-save -num 50
   bash test.sh -type oss-submit -num 50
+  bash test.sh -type oss-submit -num 1000 -include-video true -max-duration 30m
   bash test.sh -type all -num 50
   bash test.sh -type seed-only -num 200
 EOF
@@ -84,6 +89,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     -fixed-password)
       FIXED_PASSWORD="${2:-}"
+      shift 2
+      ;;
+    -include-video)
+      INCLUDE_VIDEO="${2:-}"
+      shift 2
+      ;;
+    -prepare-fixtures)
+      PREPARE_FIXTURES="${2:-}"
       shift 2
       ;;
     -k6-network)
@@ -177,6 +190,21 @@ timestamp() {
   date '+%Y%m%d-%H%M%S'
 }
 
+write_report_if_ready() {
+  local summary_json="$1"
+  local report_txt="$2"
+  local run_name="$3"
+
+  if [ ! -f "$summary_json" ]; then
+    echo "k6 summary not found, skip text report: $summary_json" >&2
+    return
+  fi
+
+  node scripts/generate-load-report-text.js "$summary_json" "$report_txt" "$run_name" "$NUM"
+  echo "JSON summary: $summary_json"
+  echo "Text report:  $report_txt"
+}
+
 ensure_services() {
   print_header "Checking services"
   compose ps
@@ -189,31 +217,23 @@ ensure_services() {
   echo "$health"
 }
 
-seed_users() {
-  print_header "Seeding users"
-  local mysql_ip redis_ip
-  mysql_ip="$(service_ip mysql)"
-  redis_ip="$(service_ip redis)"
-  if [ -z "$mysql_ip" ] || [ -z "$redis_ip" ]; then
-    echo "Failed to detect mysql/redis container IPs" >&2
-    exit 1
+prepare_fixtures() {
+  if [ "$PREPARE_FIXTURES" != "true" ]; then
+    return
   fi
 
-  DB_HOST="$mysql_ip" \
-  REDIS_HOST="$redis_ip" \
-  STORAGE_DRIVER=oss \
-  DB_PORT=3306 \
-  DB_USER=root \
-  DB_PASSWORD="$(grep '^DB_PASSWORD=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)" \
-  DB_NAME="$(grep '^DB_NAME=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)" \
-  REDIS_PORT=6379 \
-  REDIS_PASSWORD="$(grep '^REDIS_PASSWORD=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)" \
-  REDIS_DB="$(grep '^REDIS_DB=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)" \
-  LOAD_USER_COUNT="$NUM" \
-  LOAD_USER_START="$START" \
-  LOAD_USER_PASSWORD_MODE="$PASSWORD_MODE" \
-  LOAD_USER_FIXED_PASSWORD="$FIXED_PASSWORD" \
-  node scripts/seed-load-users.js
+  print_header "Preparing load fixtures"
+  node scripts/prepare-load-fixtures.js
+}
+
+seed_users() {
+  print_header "Seeding users"
+  compose exec -T \
+    -e LOAD_USER_COUNT="$NUM" \
+    -e LOAD_USER_START="$START" \
+    -e LOAD_USER_PASSWORD_MODE="$PASSWORD_MODE" \
+    -e LOAD_USER_FIXED_PASSWORD="$FIXED_PASSWORD" \
+    app node scripts/seed-load-users.js
 }
 
 run_k6() {
@@ -244,15 +264,14 @@ run_k6() {
       -e PASSWORD_MODE="$PASSWORD_MODE" \
       -e FIXED_PASSWORD="$FIXED_PASSWORD" \
       -e FINAL_SUBMIT="$final_submit" \
+      -e INCLUDE_OPTIONAL_VIDEO="$INCLUDE_VIDEO" \
       -e VUS="$NUM" \
       -e PER_VU_ITERS="$PER_VU_ITERS" \
       -e MAX_DURATION="$MAX_DURATION" \
       "$script_name" 2>&1 | tee "$log_file"
     local status=${PIPESTATUS[0]}
     set -e
-    node scripts/generate-load-report-text.js "$summary_json" "$report_txt" "$run_name" "$NUM"
-    echo "JSON summary: $summary_json"
-    echo "Text report:  $report_txt"
+    write_report_if_ready "$summary_json" "$report_txt" "$run_name"
     return "$status"
   fi
 
@@ -284,15 +303,14 @@ run_k6() {
     -e PASSWORD_MODE="$PASSWORD_MODE" \
     -e FIXED_PASSWORD="$FIXED_PASSWORD" \
     -e FINAL_SUBMIT="$final_submit" \
+    -e INCLUDE_OPTIONAL_VIDEO="$INCLUDE_VIDEO" \
     -e VUS="$NUM" \
     -e PER_VU_ITERS="$PER_VU_ITERS" \
     -e MAX_DURATION="$MAX_DURATION" \
     "$script_name" 2>&1 | tee "$log_file"
   local status=${PIPESTATUS[0]}
   set -e
-  node scripts/generate-load-report-text.js "$summary_json" "$report_txt" "$run_name" "$NUM"
-  echo "JSON summary: $summary_json"
-  echo "Text report:  $report_txt"
+  write_report_if_ready "$summary_json" "$report_txt" "$run_name"
   return "$status"
 }
 
@@ -320,12 +338,18 @@ print_summary() {
   echo "think_time=$THINK_TIME"
   echo "seed=$SEED"
   echo "password_mode=$PASSWORD_MODE"
+  echo "include_video=$INCLUDE_VIDEO"
+  echo "prepare_fixtures=$PREPARE_FIXTURES"
   echo "per_vu_iters=$PER_VU_ITERS"
   echo "max_duration=$MAX_DURATION"
   echo "report_dir=${REPORT_DIR:-$ROOT_DIR/reports}"
 }
 
 ensure_services
+
+if [ "$TYPE" != "seed-only" ]; then
+  prepare_fixtures
+fi
 
 if [ "$SEED" = "true" ]; then
   seed_users

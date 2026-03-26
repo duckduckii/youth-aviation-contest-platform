@@ -62,6 +62,7 @@ module.exports = {
     accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET || '',
     endpoint: process.env.OSS_ENDPOINT || '',
     internalEndpoint: process.env.OSS_INTERNAL_ENDPOINT || '',
+    directUploadEndpointMode: (process.env.OSS_DIRECT_UPLOAD_ENDPOINT_MODE || 'public').toLowerCase(),
     prefix: (process.env.OSS_PREFIX || 'contest').replace(/^\/+|\/+$/g, ''),
     signedUrlExpires: intFromEnv('OSS_SIGNED_URL_EXPIRES', 900),
     secure: boolFromEnv('OSS_SECURE', true),

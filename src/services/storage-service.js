@@ -27,10 +27,16 @@ function assertOssConfigured() {
 
 function createOssClient(options = {}) {
   assertOssConfigured();
-  const usePublicEndpoint = options.publicEndpoint === true;
-  const endpoint = usePublicEndpoint
-    ? (config.oss.endpoint || undefined)
-    : (config.oss.internalEndpoint || config.oss.endpoint || undefined);
+  const endpointMode = options.endpointMode || 'default';
+  let endpoint;
+
+  if (endpointMode === 'public') {
+    endpoint = config.oss.endpoint || undefined;
+  } else if (endpointMode === 'internal') {
+    endpoint = config.oss.internalEndpoint || config.oss.endpoint || undefined;
+  } else {
+    endpoint = config.oss.internalEndpoint || config.oss.endpoint || undefined;
+  }
 
   return new OSS({
     region: config.oss.region || undefined,
@@ -52,7 +58,8 @@ function buildObjectKey(registrationNo, fieldKey, storedName) {
 }
 
 async function signDirectUpload({ registrationNo, fieldKey, storedName, contentType }) {
-  const client = createOssClient({ publicEndpoint: true });
+  const endpointMode = config.oss.directUploadEndpointMode === 'internal' ? 'internal' : 'public';
+  const client = createOssClient({ endpointMode });
   const objectKey = buildObjectKey(registrationNo, fieldKey, storedName);
   const uploadUrl = client.signatureUrl(objectKey, {
     expires: config.oss.signedUrlExpires,
@@ -67,6 +74,7 @@ async function signDirectUpload({ registrationNo, fieldKey, storedName, contentT
       'Content-Type': contentType,
     },
     expiresIn: config.oss.signedUrlExpires,
+    endpointMode,
   };
 }
 

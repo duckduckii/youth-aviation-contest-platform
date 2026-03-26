@@ -12,9 +12,10 @@ const FINAL_SUBMIT = String(__ENV.FINAL_SUBMIT || 'false').toLowerCase() === 'tr
 const INCLUDE_OPTIONAL_VIDEO = String(__ENV.INCLUDE_OPTIONAL_VIDEO || 'false').toLowerCase() === 'true';
 const VUS = Number(__ENV.VUS || 50);
 const PER_VU_ITERS = Number(__ENV.PER_VU_ITERS || 1);
-
-const PDF_BODY = '%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n';
-const MP4_BODY = 'FAKE_MP4_DATA';
+const REPORT_PDF_BODY = open('./fixtures/load-test-report.pdf', 'b');
+const PROOF1_PDF_BODY = open('./fixtures/load-test-proof1.pdf', 'b');
+const INTEGRITY_PDF_BODY = open('./fixtures/load-test-integrity.pdf', 'b');
+const PROOF2_VIDEO_BODY = open('./fixtures/load-test-proof2.mp4', 'b');
 
 export const options = {
   scenarios: {
@@ -53,6 +54,12 @@ function pickUser() {
 
 function bodyIncludes(response, text) {
   return typeof response.body === 'string' && response.body.includes(text);
+}
+
+function bodySize(body) {
+  if (body && typeof body.byteLength === 'number') return body.byteLength;
+  if (body && typeof body.length === 'number') return body.length;
+  return 0;
 }
 
 function signFile(fieldKey, fileName, contentType, size) {
@@ -152,19 +159,19 @@ export default function () {
       fieldKey: 'report',
       fileName: 'load-test-report.pdf',
       contentType: 'application/pdf',
-      body: PDF_BODY,
+      body: REPORT_PDF_BODY,
     },
     {
       fieldKey: 'proof1',
       fileName: 'load-test-proof1.pdf',
       contentType: 'application/pdf',
-      body: PDF_BODY,
+      body: PROOF1_PDF_BODY,
     },
     {
       fieldKey: 'integrity',
       fileName: 'load-test-integrity.pdf',
       contentType: 'application/pdf',
-      body: PDF_BODY,
+      body: INTEGRITY_PDF_BODY,
     },
   ];
 
@@ -173,12 +180,13 @@ export default function () {
       fieldKey: 'proof2',
       fileName: 'load-test-proof2.mp4',
       contentType: 'video/mp4',
-      body: MP4_BODY,
+      body: PROOF2_VIDEO_BODY,
     });
   }
 
   for (const file of files) {
-    const signData = signFile(file.fieldKey, file.fileName, file.contentType, file.body.length);
+    const fileSize = bodySize(file.body);
+    const signData = signFile(file.fieldKey, file.fileName, file.contentType, fileSize);
     if (!signData) {
       return;
     }
@@ -192,7 +200,7 @@ export default function () {
       objectKey: signData.objectKey,
       originalName: signData.originalName || file.fileName,
       storedName: signData.storedName,
-      size: file.body.length,
+      size: fileSize,
       contentType: file.contentType,
     };
 

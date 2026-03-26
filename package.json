@@ -8,7 +8,10 @@
     "start": "node src/server.js",
     "db:init": "node scripts/init-db.js",
     "db:seed": "node scripts/seed-demo-users.js",
-    "db:prepare": "npm run db:init && npm run db:seed"
+    "db:prepare": "npm run db:init && npm run db:seed",
+    "load:fixtures": "node scripts/prepare-load-fixtures.js",
+    "load:oss:200:external": "bash tests/load/run-external-oss-submit-200.sh",
+    "load:oss:1000": "bash tests/load/run-oss-submit-1000.sh"
   },
   "keywords": [],
   "author": "",
