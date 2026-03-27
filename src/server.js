@@ -97,6 +97,22 @@ function setFlash(req, type, message) {
   req.session.flash = { type, message };
 }
 
+function saveSession(req) {
+  if (!req?.session) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    req.session.save((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 function consumeFlash(req) {
   const flash = req.session.flash || null;
   delete req.session.flash;
@@ -297,6 +313,7 @@ const redisStore = new RedisStore({
   client: redisClient,
   prefix: config.redis.prefix,
   ttl: config.redis.sessionTtl,
+  disableTouch: config.redis.disableTouch,
 });
 
 app.use(
@@ -399,9 +416,11 @@ app.post('/login', ensureGuest, async (req, res) => {
 
     req.session.userId = user.id;
     writeSessionUser(req, user);
+    await saveSession(req);
     return res.redirect('/portal');
   } catch (error) {
     setFlash(req, 'error', `登录失败：${error.message}`);
+    await saveSession(req);
     return res.redirect('/login');
   }
 });
@@ -674,6 +693,7 @@ app.post('/select-direction', ensureAuth, async (req, res) => {
 
     if (direction === TRACKS.KNOWLEDGE) {
       req.session.pendingDirection = TRACKS.KNOWLEDGE;
+      await saveSession(req);
       return res.redirect('/knowledge/confirm');
     }
 
@@ -690,9 +710,11 @@ app.post('/select-direction', ensureAuth, async (req, res) => {
       'success',
       `已选择赛道：${TRACK_LABELS[direction]}（可在选择页重新调整）`,
     );
+    await saveSession(req);
     return res.redirect('/innovation');
   } catch (error) {
     setFlash(req, 'error', `选择失败：${error.message}`);
+    await saveSession(req);
     return res.redirect('/select-direction');
   }
 });
@@ -755,9 +777,11 @@ app.post('/knowledge/confirm', ensureAuth, async (req, res) => {
       'success',
       `已最终提交：${TRACK_LABELS[TRACKS.KNOWLEDGE]}`,
     );
+    await saveSession(req);
     return res.redirect('/knowledge/success');
   } catch (error) {
     setFlash(req, 'error', `确认失败：${error.message}`);
+    await saveSession(req);
     return res.redirect('/knowledge/confirm');
   }
 });

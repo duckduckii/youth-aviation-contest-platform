@@ -65,6 +65,7 @@ services:
     ports:
       - "3000:80"
     volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./public:/app/public:ro
     healthcheck:

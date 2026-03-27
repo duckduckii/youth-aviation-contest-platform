@@ -47,6 +47,7 @@ module.exports = {
     db: intFromEnv('REDIS_DB', 0),
     prefix: process.env.REDIS_PREFIX || 'youth-contest:sess:',
     sessionTtl: intFromEnv('SESSION_TTL', 60 * 60 * 8),
+    disableTouch: boolFromEnv('REDIS_DISABLE_TOUCH', true),
   },
   session: {
     cookieSecure: boolFromEnv('SESSION_COOKIE_SECURE', false),

@@ -9,10 +9,10 @@ function resolveWorkerCount() {
   }
 
   if (typeof os.availableParallelism === 'function') {
-    return Math.max(1, Math.min(os.availableParallelism(), 4));
+    return Math.max(1, Math.min(os.availableParallelism(), 8));
   }
 
-  return Math.max(1, Math.min(os.cpus().length, 4));
+  return Math.max(1, Math.min(os.cpus().length, 8));
 }
 
 async function startWorker() {
