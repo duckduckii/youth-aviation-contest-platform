@@ -54,6 +54,13 @@ module.exports = {
     cookieSameSite: process.env.SESSION_COOKIE_SAME_SITE || 'lax',
     authCookieName: process.env.AUTH_COOKIE_NAME || 'contest_auth',
   },
+  login: {
+    admissionEnabled: boolFromEnv('LOGIN_ADMISSION_ENABLED', true),
+    maxInflight: intFromEnv('LOGIN_MAX_INFLIGHT', 64),
+    retryAfterSeconds: intFromEnv('LOGIN_RETRY_AFTER_SECONDS', 3),
+    slotTtlSeconds: intFromEnv('LOGIN_SLOT_TTL_SECONDS', 30),
+    counterKey: process.env.LOGIN_ADMISSION_COUNTER_KEY || 'youth-contest:login:inflight',
+  },
   upload: {
     rootDir: path.join(rootDir, 'uploads'),
     maxReportMb: intFromEnv('MAX_REPORT_MB', 30),

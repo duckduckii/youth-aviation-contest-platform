@@ -16,6 +16,10 @@ const { runExportBatch, runTailExport } = require('./services/export-batch-runne
 const storageService = require('./services/storage-service');
 const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
 const {
+  acquireLoginSlot,
+  releaseLoginSlot,
+} = require('./services/login-admission-service');
+const {
   buildSessionUser,
   readSessionUser,
   writeSessionUser,
@@ -100,6 +104,15 @@ function isAdminUser(user) {
 
 function setFlash(req, type, message) {
   req.session.flash = { type, message };
+}
+
+function isJsonRequest(req) {
+  if (req.originalUrl.startsWith('/api/')) {
+    return true;
+  }
+
+  const accepted = req.accepts(['html', 'json']);
+  return req.xhr || accepted === 'json';
 }
 
 function parseCookies(cookieHeader) {
@@ -476,7 +489,29 @@ app.post('/login', ensureGuest, async (req, res) => {
     return res.redirect('/login');
   }
 
+  let slotAcquired = false;
   try {
+    const admission = await acquireLoginSlot(redisClient);
+    if (!admission.ok) {
+      res.set('Retry-After', String(config.login.retryAfterSeconds));
+      res.set('X-Load-Shed', 'login-admission');
+      if (isJsonRequest(req)) {
+        return res.status(503).json({
+          message: '当前登录人数较多，请稍后重试',
+          retryAfterSeconds: config.login.retryAfterSeconds,
+        });
+      }
+      res.status(503);
+      res.locals.flash = {
+        type: 'error',
+        message: '当前登录人数较多，请稍后重试',
+      };
+      return res.render('login', {
+        pageTitle: '登录',
+      });
+    }
+    slotAcquired = true;
+
     const user = await userService.verifyLogin(registrationNo, password);
     if (!user) {
       setFlash(req, 'error', '报名号或密码错误');
@@ -492,6 +527,14 @@ app.post('/login', ensureGuest, async (req, res) => {
     setFlash(req, 'error', `登录失败：${error.message}`);
     await saveSession(req);
     return res.redirect('/login');
+  } finally {
+    if (slotAcquired) {
+      try {
+        await releaseLoginSlot(redisClient);
+      } catch (error) {
+        console.warn(`释放登录准入槽位失败：${error.message}`);
+      }
+    }
   }
 });
 

@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 TYPE="baseline"
 NUM="50"
 START="202699990001"
+USER_COUNT=""
 BASE_URL="http://127.0.0.1:3000"
 THINK_TIME="0.5"
 ENV_FILE=".env.production"
@@ -19,6 +20,11 @@ K6_NETWORK=""
 PER_VU_ITERS="1"
 MAX_DURATION="10m"
 REPORT_DIR=""
+SCENARIO_MODE="per-vu"
+TOTAL_ITERATIONS=""
+LOGIN_RETRY_MAX="0"
+LOGIN_RETRY_BACKOFF="3"
+FLOW_RETRY_MAX="0"
 
 usage() {
   cat <<'EOF'
@@ -29,6 +35,7 @@ Options:
   -type <value>             Test type. Default: baseline
   -num <value>              Number of users/VUs. Default: 50
   -start <value>            Starting registration number. Default: 202699990001
+  -user-count <value>       Total unique users. Default: same as -num
   -base-url <value>         Base URL for app. Default: http://127.0.0.1:3000
   -think-time <value>       Think time in seconds. Default: 0.5
   -env-file <path>          Docker Compose env file. Default: .env.production
@@ -41,6 +48,11 @@ Options:
   -per-vu-iters <value>     Iterations per VU. Default: 1
   -max-duration <value>     Max duration for k6 scenario. Default: 10m
   -report-dir <path>        Output directory for test reports
+  -scenario-mode <value>    per-vu or shared-iterations. Default: per-vu
+  -total-iterations <value> Total users for shared-iterations mode
+  -login-retry-max <value>  Retries when /login returns busy. Default: 0
+  -login-retry-backoff <s>  Base retry backoff seconds. Default: 3
+  -flow-retry-max <value>   Whole-flow retries after auth loss. Default: 0
   -h, --help                Show help
 
 Examples:
@@ -69,6 +81,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     -base-url)
       BASE_URL="${2:-}"
+      shift 2
+      ;;
+    -user-count)
+      USER_COUNT="${2:-}"
       shift 2
       ;;
     -think-time)
@@ -113,6 +129,26 @@ while [ "$#" -gt 0 ]; do
       ;;
     -report-dir)
       REPORT_DIR="${2:-}"
+      shift 2
+      ;;
+    -scenario-mode)
+      SCENARIO_MODE="${2:-}"
+      shift 2
+      ;;
+    -total-iterations)
+      TOTAL_ITERATIONS="${2:-}"
+      shift 2
+      ;;
+    -login-retry-max)
+      LOGIN_RETRY_MAX="${2:-}"
+      shift 2
+      ;;
+    -login-retry-backoff)
+      LOGIN_RETRY_BACKOFF="${2:-}"
+      shift 2
+      ;;
+    -flow-retry-max)
+      FLOW_RETRY_MAX="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -229,7 +265,7 @@ prepare_fixtures() {
 seed_users() {
   print_header "Seeding users"
   compose exec -T \
-    -e LOAD_USER_COUNT="$NUM" \
+    -e LOAD_USER_COUNT="${USER_COUNT:-$NUM}" \
     -e LOAD_USER_START="$START" \
     -e LOAD_USER_PASSWORD_MODE="$PASSWORD_MODE" \
     -e LOAD_USER_FIXED_PASSWORD="$FIXED_PASSWORD" \
@@ -241,6 +277,8 @@ run_k6() {
   local final_submit="${2:-false}"
   local run_name="$3"
   local report_base summary_json report_txt log_file
+  local total_iterations
+  local user_count
 
   report_base="${REPORT_DIR:-$ROOT_DIR/reports/$(timestamp)-${TYPE}-${NUM}}"
   if [ "$TYPE" = "all" ]; then
@@ -251,6 +289,8 @@ run_k6() {
   summary_json="$report_base/summary.json"
   report_txt="$report_base/report.txt"
   log_file="$report_base/k6.log"
+  total_iterations="${TOTAL_ITERATIONS:-$NUM}"
+  user_count="${USER_COUNT:-$NUM}"
 
   if command -v k6 >/dev/null 2>&1; then
     print_header "Running k6 locally"
@@ -259,7 +299,7 @@ run_k6() {
       --summary-export "$summary_json" \
       -e BASE_URL="$BASE_URL" \
       -e USER_START="$START" \
-      -e USER_COUNT="$NUM" \
+      -e USER_COUNT="$user_count" \
       -e THINK_TIME="$THINK_TIME" \
       -e PASSWORD_MODE="$PASSWORD_MODE" \
       -e FIXED_PASSWORD="$FIXED_PASSWORD" \
@@ -267,6 +307,11 @@ run_k6() {
       -e INCLUDE_OPTIONAL_VIDEO="$INCLUDE_VIDEO" \
       -e VUS="$NUM" \
       -e PER_VU_ITERS="$PER_VU_ITERS" \
+      -e SCENARIO_MODE="$SCENARIO_MODE" \
+      -e TOTAL_ITERATIONS="$total_iterations" \
+      -e LOGIN_RETRY_MAX="$LOGIN_RETRY_MAX" \
+      -e LOGIN_RETRY_BACKOFF="$LOGIN_RETRY_BACKOFF" \
+      -e FLOW_RETRY_MAX="$FLOW_RETRY_MAX" \
       -e MAX_DURATION="$MAX_DURATION" \
       "$script_name" 2>&1 | tee "$log_file"
     local status=${PIPESTATUS[0]}
@@ -298,7 +343,7 @@ run_k6() {
     --summary-export "${summary_json#$ROOT_DIR/}" \
     -e BASE_URL="$target_url" \
     -e USER_START="$START" \
-    -e USER_COUNT="$NUM" \
+    -e USER_COUNT="$user_count" \
     -e THINK_TIME="$THINK_TIME" \
     -e PASSWORD_MODE="$PASSWORD_MODE" \
     -e FIXED_PASSWORD="$FIXED_PASSWORD" \
@@ -306,6 +351,11 @@ run_k6() {
     -e INCLUDE_OPTIONAL_VIDEO="$INCLUDE_VIDEO" \
     -e VUS="$NUM" \
     -e PER_VU_ITERS="$PER_VU_ITERS" \
+    -e SCENARIO_MODE="$SCENARIO_MODE" \
+    -e TOTAL_ITERATIONS="$total_iterations" \
+    -e LOGIN_RETRY_MAX="$LOGIN_RETRY_MAX" \
+    -e LOGIN_RETRY_BACKOFF="$LOGIN_RETRY_BACKOFF" \
+    -e FLOW_RETRY_MAX="$FLOW_RETRY_MAX" \
     -e MAX_DURATION="$MAX_DURATION" \
     "$script_name" 2>&1 | tee "$log_file"
   local status=${PIPESTATUS[0]}
@@ -334,6 +384,7 @@ print_summary() {
   echo "type=$TYPE"
   echo "num=$NUM"
   echo "start=$START"
+  echo "user_count=${USER_COUNT:-$NUM}"
   echo "base_url=$BASE_URL"
   echo "think_time=$THINK_TIME"
   echo "seed=$SEED"
@@ -342,6 +393,11 @@ print_summary() {
   echo "prepare_fixtures=$PREPARE_FIXTURES"
   echo "per_vu_iters=$PER_VU_ITERS"
   echo "max_duration=$MAX_DURATION"
+  echo "scenario_mode=$SCENARIO_MODE"
+  echo "total_iterations=${TOTAL_ITERATIONS:-$NUM}"
+  echo "login_retry_max=$LOGIN_RETRY_MAX"
+  echo "login_retry_backoff=$LOGIN_RETRY_BACKOFF"
+  echo "flow_retry_max=$FLOW_RETRY_MAX"
   echo "report_dir=${REPORT_DIR:-$ROOT_DIR/reports}"
 }
 

@@ -28,6 +28,24 @@ bash tests/load/run-oss-submit-1000.sh
 
 线上部署建议保持 `宿主机 nginx -> app(cluster workers)` 拓扑，再从公网机器发压测。这样公网入口、会话、应用 worker 和 OSS 直传链路都在同一条真实路径上。
 
+## 单机高可用模型
+
+如果目标不是“同一秒硬扛住 200/1000 人 fresh login”，而是“单机保持高可用，超过能力就提示稍后重试”，推荐启用登录准入保护并使用窗口化压测：
+
+- 服务端：
+  - `LOGIN_ADMISSION_ENABLED=true`
+  - `LOGIN_MAX_INFLIGHT=64`
+  - `LOGIN_RETRY_AFTER_SECONDS=3`
+- 行为：
+  - 超过单机可承受的登录并发时，`/login` 会直接返回 `503` 和 `Retry-After`
+  - 已经拿到登录名额的用户继续完成后续提交
+  - 压测端按真实用户方式做退避重试，而不是所有人同一秒只撞一次
+
+这样更适合回答两个问题：
+
+- 单机在高可用前提下能稳定承受多少“正在进行中的登录”
+- 一段时间内处理完 `2000` 个学生资料提交总共需要多久
+
 ## 常用命令
 
 只准备 1000 个压测账号：
@@ -55,6 +73,11 @@ THINK_TIME=0.1 bash tests/load/run-oss-submit-1000.sh
 - `MAX_DURATION`：默认 `30m`
 - `INCLUDE_VIDEO`：默认 `true`
 - `REPORT_DIR`：自定义报告目录
+- `SCENARIO_MODE`：`per-vu` 或 `shared-iterations`
+- `TOTAL_ITERATIONS`：窗口化测试的总用户数
+- `LOGIN_RETRY_MAX`
+- `LOGIN_RETRY_BACKOFF`
+- `FLOW_RETRY_MAX`
 - `LOAD_FIXTURE_REPORT_BYTES`
 - `LOAD_FIXTURE_PROOF1_BYTES`
 - `LOAD_FIXTURE_INTEGRITY_BYTES`
@@ -87,21 +110,29 @@ BASE_URL=http://你的公网地址:3000 INCLUDE_VIDEO=true bash tests/load/run-e
 BASE_URL=http://你的公网地址:3000 USER_START=202699990001 USER_COUNT=200 bash tests/load/run-external-oss-submit-200.sh
 ```
 
+模拟 `2000` 个学生在一段时间内陆续重试并完成提交：
+
+```bash
+BASE_URL=http://你的公网地址:3000 bash tests/load/run-external-oss-submit-2000-window.sh
+```
+
+这个入口默认含义是：
+
+- 总学生数 `2000`
+- 同时活跃用户上限 `120`
+- 登录忙时自动退避重试
+- 整个流程允许有限次数重试
+- 最终看“全部处理完用了多久”，而不是只看同一秒瞬时登录是否全成功
+
 外部压测机前提：
 
 - 目标服务上的压测账号必须提前准备好
 - 默认密码模式是 `last8`
 - 需要本机安装 `k6`，或者可用 `docker run grafana/k6`
 
-## 已验证结论
+## 当前建议
 
-同样是 `200` 并发、无视频、同一套脚本，结果如下：
+在真实公网环境下，如果目标是“尽量让用户最终完成提交”，建议先用窗口化模型看总耗时，再用瞬时并发模型看保护阈值：
 
-- `public endpoint`：失败
-  - `http_req_failed=5.89%`
-  - `http_req_duration p95=13901 ms`
-- `internal endpoint`：通过
-  - `http_req_failed=0.00%`
-  - `http_req_duration p95=965 ms`
-
-这说明当前主瓶颈在 `OSS 公网直传链路`，不是业务主链路本身。
+- 窗口化模型：测 `2000` 个学生最终多久处理完
+- 瞬时并发模型：测单机在 `503 + Retry-After` 保护下能稳定承受多少登录并发
