@@ -18,5 +18,6 @@ fi
 $COMPOSE build app
 $COMPOSE up -d mysql redis
 $COMPOSE --profile init run --rm app-init
-$COMPOSE up -d app nginx
+$COMPOSE up -d app
+docker rm -f youth-contest-nginx >/dev/null 2>&1 || true
 $COMPOSE ps
