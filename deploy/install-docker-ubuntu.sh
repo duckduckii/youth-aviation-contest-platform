@@ -26,6 +26,11 @@ export DEFAULT_DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.
 
 install_docker_engine() {
   echo "[2/5] 安装 Docker Engine"
+  if command -v docker >/dev/null 2>&1 && docker --version >/dev/null 2>&1; then
+    echo "检测到当前系统已安装 Docker，跳过 Docker Engine 安装。"
+    return 0
+  fi
+
   if curl -fsSL https://get.docker.com | sh; then
     return 0
   fi
@@ -96,8 +101,12 @@ install_docker_engine
 configure_docker_mirror
 
 echo "[4/5] 启用并启动 Docker"
-systemctl enable docker
-systemctl restart docker
+systemctl daemon-reload
+systemctl reset-failed docker.service docker.socket || true
+systemctl enable docker.service docker.socket containerd.service
+systemctl restart containerd.service
+systemctl restart docker.socket
+systemctl restart docker.service
 
 echo "[5/5] 检查 Docker Compose"
 if ! docker compose version >/dev/null 2>&1; then
