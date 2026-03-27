@@ -10,7 +10,7 @@
 - `app`：Node.js 应用容器
 - `mysql`：MySQL 8.4 容器
 - `redis`：Redis 7 容器
-- `nginx`：建议宿主机安装，用于反向代理和 HTTPS
+- `nginx`：宿主机安装，由 `deploy/release.sh` 自动安装和下发配置
 - `oss`：仅在 `STORAGE_DRIVER=oss` 时启用
 
 说明：这是单机架构，适合一期上线、流程已稳定、预算有限的场景，但存在单点故障。
@@ -36,7 +36,7 @@
   - `80/tcp`：HTTP
   - `443/tcp`：HTTPS
 
-如果前期调试需要直接访问应用，也可以临时放行 `3000/tcp`，正式上线后建议仅保留 `80/443`，由 Nginx 转发到 `127.0.0.1:3000`。
+如果前期调试需要直接访问应用，也可以临时放行 `3000/tcp`。当前默认拓扑是宿主机 `nginx` 监听 `3000`，再反向代理到容器内 `127.0.0.1:3001`。
 
 ## 4. ECS 安装基础环境
 
@@ -219,6 +219,13 @@ cp deploy/templates/env.docker.local.example .env.production
 ```bash
 ./deploy/release.sh
 ```
+
+当前 `release.sh` 会自动完成：
+
+- 宿主机 sysctl 参数应用
+- 宿主机 `nginx` 安装/更新与配置下发
+- `mysql`、`redis`、`app` 容器启动
+- 初始化数据库与演示账号
 
 脚本会自动完成：
 

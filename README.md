@@ -24,14 +24,27 @@
 ## 推荐部署方式
 
 当前仓库默认只维护一套生产部署路径：`Docker Compose` 单机部署。
+当前生产拓扑是：
+
+- 宿主机 `nginx:3000`
+- `app` 容器监听 `127.0.0.1:3001`
+- `mysql`、`redis` 运行在 Docker Compose 中
 
 ```bash
+sudo bash deploy/install-docker-ubuntu.sh
 cp deploy/templates/env.docker.oss.example .env.production
 # 或
 # cp deploy/templates/env.docker.local.example .env.production
 
 ./deploy/release.sh
 ```
+
+`./deploy/release.sh` 会自动完成以下宿主机动作：
+
+- 应用宿主机 sysctl 参数
+- 安装或更新宿主机 `nginx`
+- 下发宿主机 `nginx` 配置
+- 拉起 `mysql`、`redis`、`app` 容器
 
 发布后可用以下命令检查状态：
 

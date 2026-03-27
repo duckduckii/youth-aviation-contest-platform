@@ -21,11 +21,19 @@
 git clone <your-repo-url>
 cd youth-aviation-contest-platform
 
+sudo bash deploy/install-docker-ubuntu.sh
 cp deploy/templates/env.docker.oss.example .env.production
 # 或 cp deploy/templates/env.docker.local.example .env.production
 
 ./deploy/release.sh
 ```
+
+当前 `release.sh` 已包含：
+
+- 宿主机 `sysctl` 应用
+- 宿主机 `nginx` 安装/更新与配置下发
+- `mysql`、`redis`、`app` 容器启动
+- 初始化数据库与演示账号
 
 ## 发布后检查
 
