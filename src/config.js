@@ -51,6 +51,8 @@ module.exports = {
   },
   session: {
     cookieSecure: boolFromEnv('SESSION_COOKIE_SECURE', false),
+    cookieSameSite: process.env.SESSION_COOKIE_SAME_SITE || 'lax',
+    authCookieName: process.env.AUTH_COOKIE_NAME || 'contest_auth',
   },
   upload: {
     rootDir: path.join(rootDir, 'uploads'),

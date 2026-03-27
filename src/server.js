@@ -16,6 +16,7 @@ const { runExportBatch, runTailExport } = require('./services/export-batch-runne
 const storageService = require('./services/storage-service');
 const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
 const {
+  buildSessionUser,
   readSessionUser,
   writeSessionUser,
   clearSessionUser,
@@ -32,6 +33,10 @@ const {
   buildStoredName,
   buildPhysicalName,
 } = require('./utils/file-helpers');
+const {
+  buildAuthCookieValue,
+  verifyAuthCookieValue,
+} = require('./utils/auth-cookie');
 
 const app = express();
 
@@ -95,6 +100,57 @@ function isAdminUser(user) {
 
 function setFlash(req, type, message) {
   req.session.flash = { type, message };
+}
+
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (!cookieHeader) {
+    return cookies;
+  }
+
+  for (const part of String(cookieHeader).split(';')) {
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+}
+
+function authCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: config.session.cookieSecure,
+    sameSite: config.session.cookieSameSite,
+    maxAge: config.redis.sessionTtl * 1000,
+    path: '/',
+  };
+}
+
+function readAuthCookieUser(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const rawValue = cookies[config.session.authCookieName];
+  return verifyAuthCookieValue(rawValue, config.app.sessionSecret);
+}
+
+function writeAuthCookie(res, user) {
+  const snapshot = buildSessionUser(user);
+  if (!snapshot) {
+    return;
+  }
+
+  const value = buildAuthCookieValue(snapshot, config.app.sessionSecret, config.redis.sessionTtl);
+  res.cookie(config.session.authCookieName, value, authCookieOptions());
+}
+
+function clearAuthCookie(res) {
+  res.clearCookie(config.session.authCookieName, {
+    httpOnly: true,
+    secure: config.session.cookieSecure,
+    sameSite: config.session.cookieSameSite,
+    path: '/',
+  });
 }
 
 function saveSession(req) {
@@ -325,6 +381,7 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: config.session.cookieSecure,
+      sameSite: config.session.cookieSameSite,
       maxAge: config.redis.sessionTtl * 1000,
     },
   }),
@@ -340,17 +397,27 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req, res, next) => {
+  req.authCookieUser = readAuthCookieUser(req);
+  next();
+});
+
 app.use(async (req, res, next) => {
   res.locals.flash = consumeFlash(req);
   res.locals.currentUser = null;
   res.locals.isAdmin = false;
   res.locals.trackLabels = TRACK_LABELS;
 
-  if (!req.session.userId) {
+  if (!req.session.userId && req.authCookieUser) {
+    req.session.userId = req.authCookieUser.id;
+    writeSessionUser(req, req.authCookieUser);
+  }
+
+  const sessionUser = readSessionUser(req) || req.authCookieUser;
+  if (!req.session.userId && !sessionUser) {
     return next();
   }
 
-  const sessionUser = readSessionUser(req);
   if (sessionUser) {
     req.currentUser = sessionUser;
     res.locals.currentUser = sessionUser;
@@ -363,11 +430,13 @@ app.use(async (req, res, next) => {
     if (!user) {
       clearSessionUser(req);
       clearSessionSubmission(req);
+      clearAuthCookie(res);
       req.session.destroy(() => {});
       return res.redirect('/login');
     }
 
     const snapshot = writeSessionUser(req, user);
+    writeAuthCookie(res, snapshot);
     req.currentUser = snapshot;
     res.locals.currentUser = snapshot;
     res.locals.isAdmin = isAdminUser(snapshot);
@@ -378,7 +447,7 @@ app.use(async (req, res, next) => {
 });
 
 app.get('/', (req, res) => {
-  if (!req.session.userId) {
+  if (!req.currentUser) {
     return res.redirect('/login');
   }
   return res.redirect('/portal');
@@ -416,6 +485,7 @@ app.post('/login', ensureGuest, async (req, res) => {
 
     req.session.userId = user.id;
     writeSessionUser(req, user);
+    writeAuthCookie(res, user);
     await saveSession(req);
     return res.redirect('/portal');
   } catch (error) {
@@ -426,6 +496,7 @@ app.post('/login', ensureGuest, async (req, res) => {
 });
 
 app.post('/logout', ensureAuth, (req, res) => {
+  clearAuthCookie(res);
   req.session.destroy(() => {
     res.redirect('/login');
   });
@@ -464,8 +535,9 @@ app.post('/change-password', ensureAuth, async (req, res) => {
       return res.redirect('/change-password');
     }
 
-    await userService.changePassword(req.session.userId, newPassword);
+    await userService.changePassword(req.currentUser.id, newPassword);
     setFlash(req, 'success', '密码修改成功，请使用新密码登录');
+    clearAuthCookie(res);
     req.session.destroy(() => {
       res.redirect('/login');
     });
@@ -699,10 +771,11 @@ app.post('/select-direction', ensureAuth, async (req, res) => {
 
     await userService.setTrack(req.currentUser.id, direction);
     const submission = await submissionService.getOrCreateByUserId(req.currentUser.id);
-    writeSessionUser(req, {
+    const nextUser = writeSessionUser(req, {
       ...req.currentUser,
       direction,
     });
+    writeAuthCookie(res, nextUser);
     syncSubmissionSnapshot(req, submission);
 
     setFlash(
@@ -765,10 +838,11 @@ app.post('/knowledge/confirm', ensureAuth, async (req, res) => {
     }
 
     await userService.setTrack(req.currentUser.id, TRACKS.KNOWLEDGE);
-    writeSessionUser(req, {
+    const nextUser = writeSessionUser(req, {
       ...req.currentUser,
       direction: TRACKS.KNOWLEDGE,
     });
+    writeAuthCookie(res, nextUser);
     clearSessionSubmission(req);
     delete req.session.pendingDirection;
 
