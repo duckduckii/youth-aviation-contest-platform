@@ -88,8 +88,7 @@ install_ubuntu_base_packages() {
     apt-transport-https \
     gnupg \
     lsb-release \
-    python3 \
-    nginx
+    python3
 }
 
 install_docker_engine() {
@@ -233,7 +232,6 @@ install_host_nginx() {
   nginx -t
   systemctl enable nginx
   systemctl restart nginx
-  systemctl status nginx --no-pager
 }
 
 wait_for_container_health() {
