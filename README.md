@@ -31,16 +31,13 @@
 - `mysql`、`redis` 运行在 Docker Compose 中
 
 ```bash
-sudo bash deploy/install-docker-ubuntu.sh
-cp deploy/templates/env.docker.oss.example .env.production
-# 或
-# cp deploy/templates/env.docker.local.example .env.production
-
 ./deploy/release.sh
 ```
 
 `./deploy/release.sh` 会自动完成以下宿主机动作：
 
+- 根目录不存在 `.env.production` 时，自动基于 `.env.production.default` 初始化一份
+- Ubuntu 上自动安装或修复 `Docker Engine` / `Docker Compose`
 - 应用宿主机 sysctl 参数
 - 安装或更新宿主机 `nginx`
 - 下发宿主机 `nginx` 配置
@@ -86,8 +83,7 @@ curl http://127.0.0.1:3000/healthz
 - 部署入口索引：[deploy/README.md](./deploy/README.md)
 - 图文部署手册：[deploy/youth-aviation-contest-platform部署手册.md](./deploy/youth-aviation-contest-platform部署手册.md)
 - 单机 Docker 手册：[deploy/ecs-single-node-docker.md](./deploy/ecs-single-node-docker.md)
-- OSS 环境模板：[deploy/templates/env.docker.oss.example](./deploy/templates/env.docker.oss.example)
-- 本地存储模板：[deploy/templates/env.docker.local.example](./deploy/templates/env.docker.local.example)
+- 根目录默认环境文件：[.env.production.default](./.env.production.default)
 - 需求文档：[docs/reference/需求文档.md](./docs/reference/需求文档.md)
 
 ## 关键业务约束

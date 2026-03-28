@@ -150,22 +150,18 @@ cd youth-aviation-contest-platform
 
 ## 7. 生成 `.env.production`
 
-本仓库只保留两种 Docker 模板：
+根目录自带一份默认环境文件模板：
 
-- `deploy/templates/env.docker.oss.example`
-- `deploy/templates/env.docker.local.example`
+- `.env.production.default`
 
-### 7.1 OSS 模式
+执行 `./deploy/release.sh` 时，如果根目录还没有 `.env.production`，脚本会自动基于这份默认模板生成一份可用配置，并自动填充随机的 `SESSION_SECRET`、数据库密码和 Redis 密码。
 
-```bash
-cp deploy/templates/env.docker.oss.example .env.production
-```
+默认模板使用：
 
-### 7.2 local 模式
+- `STORAGE_DRIVER=local`
+- 宿主机 `nginx` 反代到容器 `app`
 
-```bash
-cp deploy/templates/env.docker.local.example .env.production
-```
+如果你需要 OSS，只需要在首次发布前或自动生成后编辑根目录 `.env.production`，把 `STORAGE_DRIVER` 改为 `oss`，并补齐 `OSS_*` 参数。
 
 ## 8. `.env.production` 参数来源说明
 
@@ -222,6 +218,8 @@ cp deploy/templates/env.docker.local.example .env.production
 
 当前 `release.sh` 会自动完成：
 
+- `.env.production` 缺失时，自动基于根目录 `.env.production.default` 生成配置
+- Ubuntu 上 `Docker Engine` / `Docker Compose` 自动安装或修复
 - 宿主机 sysctl 参数应用
 - 宿主机 `nginx` 安装/更新与配置下发
 - `mysql`、`redis`、`app` 容器启动
@@ -286,13 +284,13 @@ server {
 
 ### 切换到 OSS
 
-- 使用 `deploy/templates/env.docker.oss.example` 生成新的 `.env.production`
+- 编辑根目录 `.env.production`，将 `STORAGE_DRIVER` 改为 `oss`
 - 填写所有 `OSS_*` 参数
 - 执行 `./deploy/release.sh`
 
 ### 切换到 local
 
-- 使用 `deploy/templates/env.docker.local.example` 生成新的 `.env.production`
+- 编辑根目录 `.env.production`，将 `STORAGE_DRIVER` 改为 `local`
 - 执行 `./deploy/release.sh`
 
 文件会写入 Docker 卷 `uploads_data`，而不是 OSS。

@@ -124,45 +124,23 @@ git clone https://github.com/duckduckii/youth-aviation-contest-platform.git
 cd youth-aviation-contest-platform
 ```
 
-### 5.2 安装 Docker 运行环境
+### 5.2 准备生产环境变量
 
-推荐直接使用仓库里的 Ubuntu 安装脚本：
+根目录已自带一份默认环境模板 `.env.production.default`。
 
-```bash
-sudo bash deploy/install-docker-ubuntu.sh
-```
-
-如果脚本执行成功，重新登录一次 SSH，让 `docker` 用户组生效。
-
-也可以手动检查：
-
-```bash
-docker --version
-docker compose version
-```
-
-### 5.3 准备生产环境变量
-
-OSS 模式：
-
-```bash
-cp deploy/templates/env.docker.oss.example .env.production
-vim .env.production
-```
-
-Local 模式：
-
-```bash
-cp deploy/templates/env.docker.local.example .env.production
-vim .env.production
-```
-
-至少需要替换以下字段：
+如果你直接执行 `./deploy/release.sh`，脚本会在根目录缺少 `.env.production` 时自动生成一份，并自动填充随机的：
 
 - `SESSION_SECRET`
 - `DB_PASSWORD`
 - `MYSQL_ROOT_PASSWORD`
 - `REDIS_PASSWORD`
+
+默认生成的是 `local` 存储配置，适合先把服务跑起来。
+
+如果你要在首次发布前手动调整，也可以直接编辑根目录 `.env.production`。
+
+至少需要替换以下字段：
+
 - `STORAGE_DRIVER`
 - `OSS_REGION`
 - `OSS_BUCKET`
@@ -218,9 +196,9 @@ MAX_INTEGRITY_MB=30
 
 - 如果前面挂了 Nginx 和 HTTPS，建议把 `SESSION_COOKIE_SECURE=true`
 - 如果前面有 Nginx 或 SLB，建议把 `TRUST_PROXY=true`
-- `local` 模式下可以直接使用 `deploy/templates/env.docker.local.example`
+- `local` 模式下，保留默认生成的本地存储配置即可
 
-### 5.4 执行发布
+### 5.3 执行发布
 
 ```bash
 chmod +x deploy/release.sh
@@ -229,12 +207,14 @@ chmod +x deploy/release.sh
 
 脚本会依次完成：
 
-1. 应用宿主机 sysctl 参数
-2. 安装或更新宿主机 `nginx` 并下发配置
-3. 构建应用镜像
-4. 启动 `mysql` 和 `redis`
-5. 初始化数据库并写入演示账号
-6. 启动应用容器
+1. 根目录缺少 `.env.production` 时，自动基于 `.env.production.default` 生成配置
+2. 在 Ubuntu 上自动安装或修复 `Docker Engine` / `Docker Compose`
+3. 应用宿主机 sysctl 参数
+4. 安装或更新宿主机 `nginx` 并下发配置
+5. 构建应用镜像
+6. 启动 `mysql` 和 `redis`
+7. 初始化数据库并写入演示账号
+8. 启动应用容器
 
 ## 6. 访问测试
 

@@ -11,9 +11,7 @@
 ## 相关文件
 
 - 发布脚本：[release.sh](./release.sh)
-- Ubuntu Docker 安装脚本：[install-docker-ubuntu.sh](./install-docker-ubuntu.sh)
-- OSS 模板：[templates/env.docker.oss.example](./templates/env.docker.oss.example)
-- Local 模板：[templates/env.docker.local.example](./templates/env.docker.local.example)
+- 根目录默认环境文件：[../.env.production.default](../.env.production.default)
 
 ## 最短发布路径
 
@@ -21,15 +19,13 @@
 git clone <your-repo-url>
 cd youth-aviation-contest-platform
 
-sudo bash deploy/install-docker-ubuntu.sh
-cp deploy/templates/env.docker.oss.example .env.production
-# 或 cp deploy/templates/env.docker.local.example .env.production
-
 ./deploy/release.sh
 ```
 
 当前 `release.sh` 已包含：
 
+- `.env.production` 缺失时，基于根目录 `.env.production.default` 自动生成
+- Ubuntu 上 `Docker Engine` / `Docker Compose` 自动安装或修复
 - 宿主机 `sysctl` 应用
 - 宿主机 `nginx` 安装/更新与配置下发
 - `mysql`、`redis`、`app` 容器启动
