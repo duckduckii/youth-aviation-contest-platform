@@ -6,6 +6,7 @@ PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE="$PROJECT_ROOT/.env.production"
 DEFAULT_ENV_FILE="$PROJECT_ROOT/.env.production.default"
 DEFAULT_DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.m.daocloud.io}"
+export DEFAULT_DOCKER_REGISTRY_MIRROR
 
 cd "$PROJECT_ROOT"
 
@@ -121,13 +122,14 @@ import json
 import os
 from pathlib import Path
 
-mirror = os.environ["DEFAULT_DOCKER_REGISTRY_MIRROR"].strip()
+mirror = os.getenv("DEFAULT_DOCKER_REGISTRY_MIRROR", "https://docker.m.daocloud.io").strip()
 path = Path("/etc/docker/daemon.json")
 data = {}
+original = path.read_text() if path.exists() else None
 
 if path.exists():
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(original)
     except json.JSONDecodeError:
         backup = path.with_suffix(".json.bak")
         path.rename(backup)
@@ -143,14 +145,29 @@ for item in [mirror, *mirrors]:
         merged.append(item)
 
 data["registry-mirrors"] = merged
-path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+updated = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+if original != updated:
+    path.write_text(updated)
+    print("changed")
+else:
+    print("unchanged")
 PY
 }
 
 ensure_docker_stack() {
+  mirror_status="$(configure_docker_mirror)"
+
   if command -v docker >/dev/null 2>&1 \
     && docker compose version >/dev/null 2>&1 \
     && docker info >/dev/null 2>&1; then
+    if [ "$mirror_status" = "changed" ]; then
+      systemctl daemon-reload
+      systemctl reset-failed docker.service docker.socket || true
+      systemctl restart containerd.service
+      systemctl restart docker.socket
+      systemctl restart docker.service
+    fi
     return 0
   fi
 
@@ -162,7 +179,6 @@ ensure_docker_stack() {
   echo '检测到 Docker / Docker Compose 环境未就绪，开始自动安装或修复。'
   install_ubuntu_base_packages
   install_docker_engine
-  configure_docker_mirror
 
   systemctl daemon-reload
   systemctl reset-failed docker.service docker.socket || true
