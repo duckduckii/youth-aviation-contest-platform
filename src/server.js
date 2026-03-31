@@ -14,7 +14,7 @@ const adminDashboardService = require('./services/admin-dashboard-service');
 const exportBatchService = require('./services/export-batch-service');
 const { runExportBatch, runTailExport } = require('./services/export-batch-runner-service');
 const storageService = require('./services/storage-service');
-const { createRedisClient, ensureRedisConnected } = require('./services/redis-service');
+const { createRedisClient, ensureRedisConnected, withRedisLock } = require('./services/redis-service');
 const {
   acquireLoginSlot,
   releaseLoginSlot,
@@ -136,9 +136,57 @@ function authCookieOptions() {
     httpOnly: true,
     secure: config.session.cookieSecure,
     sameSite: config.session.cookieSameSite,
+    domain: config.session.cookieDomain || undefined,
     maxAge: config.redis.sessionTtl * 1000,
     path: '/',
   };
+}
+
+function isExportNode() {
+  return config.app.role === 'export';
+}
+
+function exportBaseUrl() {
+  return config.exports.publicBaseUrl || '';
+}
+
+function buildExternalUrl(baseUrl, routePath) {
+  return new URL(routePath, `${baseUrl}/`).toString();
+}
+
+function resolveExportRouteUrl(req, routePath = req.originalUrl) {
+  const baseUrl = exportBaseUrl();
+  if (baseUrl) {
+    return buildExternalUrl(baseUrl, routePath);
+  }
+
+  if (isExportNode()) {
+    return routePath;
+  }
+
+  return '';
+}
+
+function redirectToExportNode(req, res) {
+  const target = resolveExportRouteUrl(req);
+  if (!target) {
+    return res.status(503).send('当前节点不提供导出下载，请配置 EXPORT_PUBLIC_BASE_URL 指向包月 ECS');
+  }
+
+  return res.redirect(302, target);
+}
+
+function exportLockKey(name) {
+  return `${config.exports.lockPrefix}${name}`;
+}
+
+async function withExportLock(name, handler) {
+  return withRedisLock(
+    redisClient,
+    exportLockKey(name),
+    config.exports.lockTtlSeconds,
+    handler,
+  );
 }
 
 function readAuthCookieUser(req) {
@@ -162,6 +210,7 @@ function clearAuthCookie(res) {
     httpOnly: true,
     secure: config.session.cookieSecure,
     sameSite: config.session.cookieSameSite,
+    domain: config.session.cookieDomain || undefined,
     path: '/',
   });
 }
@@ -371,8 +420,8 @@ async function canChangeDirection(user) {
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(process.cwd(), 'views'));
-if (config.app.trustProxy) {
-  app.set('trust proxy', 1);
+if (config.app.trustProxy !== false) {
+  app.set('trust proxy', config.app.trustProxy);
 }
 
 app.use(express.urlencoded({ extended: true }));
@@ -395,6 +444,7 @@ app.use(
       httpOnly: true,
       secure: config.session.cookieSecure,
       sameSite: config.session.cookieSameSite,
+      domain: config.session.cookieDomain || undefined,
       maxAge: config.redis.sessionTtl * 1000,
     },
   }),
@@ -469,6 +519,8 @@ app.get('/', (req, res) => {
 app.get('/healthz', (req, res) => {
   res.json({
     ok: true,
+    deployMode: config.deploy.mode,
+    appRole: config.app.role,
     storageDriver: config.storage.driver,
     timestamp: new Date().toISOString(),
   });
@@ -626,6 +678,8 @@ app.get('/admin/export-batches', ensureAuth, ensureAdmin, async (req, res, next)
     return res.render('admin-export-batches', {
       pageTitle: '资料导出',
       exportData,
+      exportDownloadBaseUrl: exportBaseUrl(),
+      exportNodeEnabled: isExportNode(),
       formatBytes,
     });
   } catch (error) {
@@ -688,30 +742,48 @@ app.post('/admin/export-batches/:batchId/downloaded', ensureAuth, ensureAdmin, a
 });
 
 app.get('/admin/export-batches/tail/download', ensureAuth, ensureAdmin, async (req, res, next) => {
+  if (!isExportNode()) {
+    return redirectToExportNode(req, res);
+  }
+
   try {
-    const result = await runTailExport();
+    const result = await withExportLock('tail-current', () => runTailExport());
     return res.download(result.archivePath, path.basename(result.archivePath));
   } catch (error) {
     if (error.message === '当前没有动态尾批资料') {
       return res.status(409).send(error.message);
+    }
+    if (error.code === 'REDIS_LOCKED') {
+      return res.status(409).send('动态尾批正在打包，请稍后重试');
     }
     return next(error);
   }
 });
 
 app.get('/admin/export-batches/tail/manifest', ensureAuth, ensureAdmin, async (req, res, next) => {
+  if (!isExportNode()) {
+    return redirectToExportNode(req, res);
+  }
+
   try {
-    const result = await runTailExport();
+    const result = await withExportLock('tail-current', () => runTailExport());
     return res.download(result.manifestPath, path.basename(result.manifestPath));
   } catch (error) {
     if (error.message === '当前没有动态尾批资料') {
       return res.status(409).send(error.message);
+    }
+    if (error.code === 'REDIS_LOCKED') {
+      return res.status(409).send('动态尾批正在打包，请稍后重试');
     }
     return next(error);
   }
 });
 
 app.get('/admin/export-batches/:batchId/download', ensureAuth, ensureAdmin, async (req, res, next) => {
+  if (!isExportNode()) {
+    return redirectToExportNode(req, res);
+  }
+
   try {
     let batch = await exportBatchService.getBatchById(req.params.batchId);
     if (!batch) {
@@ -720,7 +792,22 @@ app.get('/admin/export-batches/:batchId/download', ensureAuth, ensureAdmin, asyn
 
     const archiveReady = batch.archive_path && await storageService.fileExists(batch.archive_path);
     if (!archiveReady) {
-      await runExportBatch(batch.id);
+      try {
+        await withExportLock(`batch:${batch.id}`, async () => {
+          const currentBatch = await exportBatchService.getBatchById(batch.id);
+          const currentReady = currentBatch?.archive_path
+            && await storageService.fileExists(currentBatch.archive_path);
+
+          if (!currentReady) {
+            await runExportBatch(batch.id);
+          }
+        });
+      } catch (error) {
+        if (error.code === 'REDIS_LOCKED') {
+          return res.status(409).send('当前 Batch 正在打包，请稍后重试');
+        }
+        throw error;
+      }
       batch = await exportBatchService.getBatchById(batch.id);
     }
 
@@ -739,6 +826,10 @@ app.get('/admin/export-batches/:batchId/download', ensureAuth, ensureAdmin, asyn
 });
 
 app.get('/admin/export-batches/:batchId/manifest', ensureAuth, ensureAdmin, async (req, res, next) => {
+  if (!isExportNode()) {
+    return redirectToExportNode(req, res);
+  }
+
   try {
     let batch = await exportBatchService.getBatchById(req.params.batchId);
     if (!batch) {
@@ -747,7 +838,22 @@ app.get('/admin/export-batches/:batchId/manifest', ensureAuth, ensureAdmin, asyn
 
     const manifestReady = batch.manifest_path && await storageService.fileExists(batch.manifest_path);
     if (!manifestReady) {
-      await runExportBatch(batch.id);
+      try {
+        await withExportLock(`batch:${batch.id}`, async () => {
+          const currentBatch = await exportBatchService.getBatchById(batch.id);
+          const currentReady = currentBatch?.manifest_path
+            && await storageService.fileExists(currentBatch.manifest_path);
+
+          if (!currentReady) {
+            await runExportBatch(batch.id);
+          }
+        });
+      } catch (error) {
+        if (error.code === 'REDIS_LOCKED') {
+          return res.status(409).send('当前 Batch 正在打包，请稍后重试');
+        }
+        throw error;
+      }
       batch = await exportBatchService.getBatchById(batch.id);
     }
 
@@ -1316,6 +1422,10 @@ app.use((error, req, res, next) => {
 });
 
 async function startServer() {
+  if (config.deploy.mode !== 'local' && !storageService.isOssDriver()) {
+    throw new Error('cloud 模式下必须启用 STORAGE_DRIVER=oss');
+  }
+
   await ensureRedisConnected(redisClient);
   return app.listen(config.app.port, config.app.host, () => {
     console.log(`服务已启动：http://${config.app.host}:${config.app.port}`);

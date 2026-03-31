@@ -9,6 +9,8 @@
   <% const tailBatch = exportState.tailBatch || null; %>
   <% const totalSubmitted = exportState.totalSubmitted || 0; %>
   <% const barSegments = exportState.barSegments || []; %>
+  <% const normalizedExportBaseUrl = (exportDownloadBaseUrl || '').replace(/\/+$/g, ''); %>
+  <% const exportUrl = (pathname) => normalizedExportBaseUrl ? `${normalizedExportBaseUrl}${pathname}` : pathname; %>
 
   <section class="section-card">
     <div class="batch-page-head">
@@ -17,8 +19,13 @@
         <span class="account-pill">已提交 <%= totalSubmitted %> 份</span>
         <span class="account-pill">固定 Batch <%= batches.length %> 个</span>
         <span class="account-pill">动态尾批 <%= tailCount %> 份</span>
+        <span class="account-pill"><%= exportNodeEnabled ? '当前节点：导出节点' : '当前节点：普通节点' %></span>
       </div>
     </div>
+
+    <% if (normalizedExportBaseUrl && !exportNodeEnabled) { %>
+      <div class="section-tip">导出下载将跳转到包月 ECS：<%= normalizedExportBaseUrl %></div>
+    <% } %>
 
     <div class="batch-config-row">
       <div class="batch-config-inline">
@@ -130,7 +137,7 @@
           <% batches.forEach((batch) => { %>
             <tr data-batch-row="<%= batch.id %>">
               <td>
-                <input class="batch-checkbox" type="checkbox" value="<%= batch.id %>" data-batch-id="<%= batch.id %>" data-download-url="/admin/export-batches/<%= batch.id %>/download" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded" />
+                <input class="batch-checkbox" type="checkbox" value="<%= batch.id %>" data-batch-id="<%= batch.id %>" data-download-url="<%= exportUrl(`/admin/export-batches/${batch.id}/download`) %>" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded" />
               </td>
               <td>Batch <%= String(batch.batch_no).padStart(3, '0') %></td>
               <td>
@@ -153,8 +160,8 @@
               </td>
               <td class="batch-actions-cell">
                 <div class="table-actions">
-                  <a class="text-btn js-batch-download-link" href="/admin/export-batches/<%= batch.id %>/download" data-batch-id="<%= batch.id %>" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded">下载压缩包</a>
-                  <a class="text-btn" href="/admin/export-batches/<%= batch.id %>/manifest">下载清单</a>
+                  <a class="text-btn js-batch-download-link" href="<%= exportUrl(`/admin/export-batches/${batch.id}/download`) %>" data-batch-id="<%= batch.id %>" data-mark-url="/admin/export-batches/<%= batch.id %>/downloaded">下载压缩包</a>
+                  <a class="text-btn" href="<%= exportUrl(`/admin/export-batches/${batch.id}/manifest`) %>">下载清单</a>
                 </div>
               </td>
             </tr>
@@ -162,7 +169,7 @@
           <% if (tailBatch) { %>
             <tr data-batch-row="tail">
               <td>
-                <input class="batch-checkbox" type="checkbox" value="tail" data-batch-id="tail" data-download-url="/admin/export-batches/tail/download" data-mark-url="" />
+                <input class="batch-checkbox" type="checkbox" value="tail" data-batch-id="tail" data-download-url="<%= exportUrl('/admin/export-batches/tail/download') %>" data-mark-url="" />
               </td>
               <td>动态尾批</td>
               <td>
@@ -175,8 +182,8 @@
               </td>
               <td class="batch-actions-cell">
                 <div class="table-actions">
-                  <a class="text-btn js-batch-download-link" href="/admin/export-batches/tail/download" data-batch-id="tail" data-mark-url="">下载压缩包</a>
-                  <a class="text-btn" href="/admin/export-batches/tail/manifest">下载清单</a>
+                  <a class="text-btn js-batch-download-link" href="<%= exportUrl('/admin/export-batches/tail/download') %>" data-batch-id="tail" data-mark-url="">下载压缩包</a>
+                  <a class="text-btn" href="<%= exportUrl('/admin/export-batches/tail/manifest') %>">下载清单</a>
                 </div>
               </td>
             </tr>

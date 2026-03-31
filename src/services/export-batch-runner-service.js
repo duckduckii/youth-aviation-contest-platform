@@ -17,7 +17,7 @@ const FILE_RULES = [
 ];
 
 function exportRootDir() {
-  return path.join(config.upload.rootDir, '__admin_exports');
+  return config.exports.rootDir;
 }
 
 function batchToken(batch) {

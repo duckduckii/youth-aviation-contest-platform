@@ -16,9 +16,31 @@ function boolFromEnv(key, defaultValue = false) {
   return ['1', 'true', 'yes', 'on'].includes(String(raw).toLowerCase());
 }
 
+function trustProxyFromEnv(key, defaultValue = false) {
+  const raw = process.env[key];
+  if (!raw) return defaultValue;
+
+  const normalized = String(raw).trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return Number.parseInt(normalized, 10);
+  }
+
+  return raw;
+}
+
 const rootDir = process.cwd();
 
 module.exports = {
+  deploy: {
+    mode: (process.env.DEPLOY_MODE || 'cloud').toLowerCase(),
+  },
   app: {
     host: process.env.HOST || '0.0.0.0',
     port: intFromEnv('PORT', 3000),
@@ -26,7 +48,8 @@ module.exports = {
     requestLogEnabled: boolFromEnv('ACCESS_LOG_ENABLED', true),
     requestLogSlowMs: intFromEnv('ACCESS_LOG_SLOW_MS', 1500),
     sessionSecret: process.env.SESSION_SECRET || 'contest-platform-dev-secret',
-    trustProxy: boolFromEnv('TRUST_PROXY', false),
+    trustProxy: trustProxyFromEnv('TRUST_PROXY', false),
+    role: (process.env.APP_ROLE || 'app').toLowerCase(),
   },
   db: {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -52,6 +75,7 @@ module.exports = {
   session: {
     cookieSecure: boolFromEnv('SESSION_COOKIE_SECURE', false),
     cookieSameSite: process.env.SESSION_COOKIE_SAME_SITE || 'lax',
+    cookieDomain: process.env.SESSION_COOKIE_DOMAIN || '',
     authCookieName: process.env.AUTH_COOKIE_NAME || 'contest_auth',
   },
   login: {
@@ -67,6 +91,12 @@ module.exports = {
     maxProof1Mb: intFromEnv('MAX_PROOF1_MB', 30),
     maxProof2Mb: intFromEnv('MAX_PROOF2_MB', 100),
     maxIntegrityMb: intFromEnv('MAX_INTEGRITY_MB', 30),
+  },
+  exports: {
+    publicBaseUrl: (process.env.EXPORT_PUBLIC_BASE_URL || '').replace(/\/+$/g, ''),
+    rootDir: process.env.EXPORT_ROOT_DIR || path.join(rootDir, 'runtime', 'exports'),
+    lockPrefix: process.env.EXPORT_LOCK_PREFIX || 'youth-contest:export:lock:',
+    lockTtlSeconds: intFromEnv('EXPORT_LOCK_TTL_SECONDS', 300),
   },
   oss: {
     region: process.env.OSS_REGION || '',

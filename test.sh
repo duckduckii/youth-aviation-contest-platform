@@ -10,7 +10,7 @@ START="202699990001"
 USER_COUNT=""
 BASE_URL="http://127.0.0.1:3000"
 THINK_TIME="0.5"
-ENV_FILE=".env.production"
+ENV_FILE=".env"
 SEED="true"
 PASSWORD_MODE="last8"
 FIXED_PASSWORD="LoadTest@123"
@@ -38,7 +38,7 @@ Options:
   -user-count <value>       Total unique users. Default: same as -num
   -base-url <value>         Base URL for app. Default: http://127.0.0.1:3000
   -think-time <value>       Think time in seconds. Default: 0.5
-  -env-file <path>          Docker Compose env file. Default: .env.production
+  -env-file <path>          Docker Compose env file. Default: .env
   -seed <true|false>        Whether to seed users before test. Default: true
   -password-mode <value>    last8 or fixed. Default: last8
   -fixed-password <value>   Used when password-mode=fixed

@@ -9,7 +9,7 @@ REPORT_DIR_DEFAULT="$ROOT_DIR/reports/oss-submit-1000-$(date '+%Y%m%d-%H%M%S')"
 bash test.sh \
   -type oss-submit \
   -num "${NUM:-1000}" \
-  -env-file "${ENV_FILE:-.env.production}" \
+  -env-file "${ENV_FILE:-.env}" \
   -seed "${SEED:-true}" \
   -think-time "${THINK_TIME:-0.2}" \
   -password-mode "${PASSWORD_MODE:-last8}" \
