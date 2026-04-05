@@ -32,6 +32,41 @@
 - `SESSION_COOKIE_SECURE=true`
 - `SESSION_COOKIE_DOMAIN=.example.com`
 
+如果你现在只是想先把服务跑起来，不想一上来就看完整个 `.env`，就只改下面这些行。别的先不要动：
+
+```env
+SESSION_SECRET=自己生成一串很长的随机字符串
+
+DB_HOST=RDS内网地址
+DB_PORT=3306
+DB_USER=MySQL用户名
+DB_PASSWORD=MySQL密码
+DB_NAME=数据库名
+
+REDIS_URL=redis://<Redis实例ID>:<Redis密码>@<Redis内网地址>:6379/0
+
+STORAGE_DRIVER=oss
+OSS_REGION=oss-cn-hangzhou
+OSS_BUCKET=Bucket名
+OSS_ACCESS_KEY_ID=RAM AccessKey ID
+OSS_ACCESS_KEY_SECRET=RAM AccessKey Secret
+OSS_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
+OSS_INTERNAL_ENDPOINT=https://oss-cn-hangzhou-internal.aliyuncs.com
+```
+
+说明：
+
+- Redis 信息优先填写在 `REDIS_URL` 这一行。
+- 阿里云 Redis / Tair 若要求账号密码认证，推荐直接使用 `REDIS_URL`，其中“账号”通常就是实例 ID。
+- `REDIS_URL` 里 3 个东西不要填错：
+  - `<Redis实例ID>`：例如 `r-bpxxxx`
+  - `<Redis密码>`：Redis 控制台里的密码
+  - `<Redis内网地址>`：Redis 控制台里的内网连接地址
+- 如果当前只是“公网 IP + HTTP”联调，不是正式域名 HTTPS，可临时改成：
+  - `SESSION_COOKIE_SECURE=false`
+  - `SESSION_COOKIE_DOMAIN=`
+  - `EXPORT_PUBLIC_BASE_URL=`
+
 然后执行：
 
 ```bash
