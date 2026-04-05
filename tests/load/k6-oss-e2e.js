@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import exec from 'k6/execution';
 
-const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:3000';
+const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:80';
 const USER_START = __ENV.USER_START || '202699990001';
 const USER_COUNT = Number(__ENV.USER_COUNT || 300);
 const PASSWORD_MODE = (__ENV.PASSWORD_MODE || 'last8').toLowerCase();

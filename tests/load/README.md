@@ -86,7 +86,7 @@ THINK_TIME=0.1 bash tests/load/run-oss-submit-1000.sh
 ## 注意事项
 
 - 当前仓库的 `test.sh` 会优先使用本机 `k6`；如果未安装，会自动回退到 `grafana/k6` Docker 镜像。
-- 默认 `BASE_URL=http://127.0.0.1:3000` 时，Docker 回退模式会自动改写成 `http://app:3000`，避免打到错误目标。
+- 默认 `BASE_URL=http://127.0.0.1:80` 时，Docker 回退模式会自动改写成 `http://app:3000`，避免打到错误目标。
 - 报告输出包括：
   - `summary.json`
   - `report.txt`
@@ -99,21 +99,21 @@ THINK_TIME=0.1 bash tests/load/run-oss-submit-1000.sh
 标准入口：
 
 ```bash
-BASE_URL=http://你的公网地址:3000 bash tests/load/run-external-oss-submit-200.sh
+BASE_URL=http://你的公网地址:80 bash tests/load/run-external-oss-submit-200.sh
 ```
 
 常用示例：
 
 ```bash
-BASE_URL=http://你的公网地址:3000 bash tests/load/run-external-oss-submit-200.sh
-BASE_URL=http://你的公网地址:3000 INCLUDE_VIDEO=true bash tests/load/run-external-oss-submit-200.sh
-BASE_URL=http://你的公网地址:3000 USER_START=202699990001 USER_COUNT=200 bash tests/load/run-external-oss-submit-200.sh
+BASE_URL=http://你的公网地址:80 bash tests/load/run-external-oss-submit-200.sh
+BASE_URL=http://你的公网地址:80 INCLUDE_VIDEO=true bash tests/load/run-external-oss-submit-200.sh
+BASE_URL=http://你的公网地址:80 USER_START=202699990001 USER_COUNT=200 bash tests/load/run-external-oss-submit-200.sh
 ```
 
 模拟 `2000` 个学生在一段时间内陆续重试并完成提交：
 
 ```bash
-BASE_URL=http://你的公网地址:3000 bash tests/load/run-external-oss-submit-2000-window.sh
+BASE_URL=http://你的公网地址:80 bash tests/load/run-external-oss-submit-2000-window.sh
 ```
 
 这个入口默认含义是：

@@ -468,6 +468,6 @@ echo "当前模式：$MODE"
 echo "当前角色：$ROLE"
 echo "实例覆盖文件：$INSTANCE_ENV_FILE"
 echo '宿主机健康检查：'
-wait_for_http http://127.0.0.1:3000/healthz 30 2
-curl --noproxy '*' -fsS http://127.0.0.1:3000/healthz
+wait_for_http http://127.0.0.1:80/healthz 30 2
+curl --noproxy '*' -fsS http://127.0.0.1:80/healthz
 echo

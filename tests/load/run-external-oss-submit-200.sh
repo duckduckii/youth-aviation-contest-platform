@@ -24,7 +24,7 @@ REPORT_DIR="${REPORT_DIR:-$ROOT_DIR/reports/external-oss-submit-200-$(date '+%Y%
 
 if [ -z "$BASE_URL" ]; then
   echo "BASE_URL is required, for example:" >&2
-  echo "  BASE_URL=http://your-public-host:3000 bash tests/load/run-external-oss-submit-200.sh" >&2
+  echo "  BASE_URL=http://your-public-host:80 bash tests/load/run-external-oss-submit-200.sh" >&2
   exit 1
 fi
 

@@ -92,7 +92,7 @@ cd /root/youth-aviation-contest-platform
 
 ## 健康检查和入口
 
-- 宿主机 `nginx` 监听 `3000`
+- 宿主机 `nginx` 监听 `80`
 - 容器 `app` 监听 `127.0.0.1:3001`
 - ALB 健康检查建议使用：`GET /healthz`
 
@@ -105,7 +105,7 @@ cd /root/youth-aviation-contest-platform
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml ps
-curl http://127.0.0.1:3000/healthz
+curl http://127.0.0.1:80/healthz
 cat .env.instance
 ```
 

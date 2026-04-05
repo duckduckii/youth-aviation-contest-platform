@@ -8,7 +8,7 @@ TYPE="baseline"
 NUM="50"
 START="202699990001"
 USER_COUNT=""
-BASE_URL="http://127.0.0.1:3000"
+BASE_URL="http://127.0.0.1:80"
 THINK_TIME="0.5"
 ENV_FILE=".env"
 SEED="true"
@@ -36,7 +36,7 @@ Options:
   -num <value>              Number of users/VUs. Default: 50
   -start <value>            Starting registration number. Default: 202699990001
   -user-count <value>       Total unique users. Default: same as -num
-  -base-url <value>         Base URL for app. Default: http://127.0.0.1:3000
+  -base-url <value>         Base URL for app. Default: http://127.0.0.1:80
   -think-time <value>       Think time in seconds. Default: 0.5
   -env-file <path>          Docker Compose env file. Default: .env
   -seed <true|false>        Whether to seed users before test. Default: true
@@ -329,7 +329,7 @@ run_k6() {
   fi
 
   target_url="$BASE_URL"
-  if [ "$BASE_URL" = "http://127.0.0.1:3000" ] || [ "$BASE_URL" = "http://localhost:3000" ]; then
+  if [ "$BASE_URL" = "http://127.0.0.1:80" ] || [ "$BASE_URL" = "http://localhost:80" ] || [ "$BASE_URL" = "http://127.0.0.1" ] || [ "$BASE_URL" = "http://localhost" ]; then
     target_url="http://app:3000"
   fi
 
