@@ -1,0 +1,16 @@
+[Unit]
+Description=Youth Contest ESS first-boot app bootstrap
+Wants=network-online.target
+After=network-online.target cloud-final.service
+ConditionPathExists=/root/youth-aviation-contest-platform/.env
+ConditionPathExists=/usr/local/bin/youth-contest-ess-firstboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/youth-contest-ess-firstboot
+TimeoutStartSec=1800
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

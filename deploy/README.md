@@ -98,6 +98,22 @@ cd /root/youth-aviation-contest-platform
 
 这样会重写本机 `.env.instance`，把节点切成普通业务节点。
 
+如果你是“先做自定义镜像，再让 ESS 基于该镜像创建新实例”，不要只依赖控制台 UserData。
+阿里云基于自定义镜像创建实例时，UserData 不会按“首次启动脚本”自动执行，因此更稳妥的做法是把首启逻辑做成镜像内的 `systemd` oneshot 服务。
+
+当前仓库的 `./deploy/release.sh --role app` 在云上 `app` 角色成功发布后，会自动安装并启用：
+
+- `youth-contest-ess-firstboot.service`
+
+该服务会在每次开机时读取当前 ECS 实例 ID；只有当实例 ID 发生变化时，才会自动补跑一次：
+
+```bash
+cd /root/youth-aviation-contest-platform
+./deploy/release.sh --role app
+```
+
+这样镜像源机和后续 ESS 新实例都能共用同一套自愈逻辑，不依赖控制台额外再写一份 UserData。
+
 不要在 ESS 节点上执行：
 
 - `--init-db`

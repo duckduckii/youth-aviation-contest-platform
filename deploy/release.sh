@@ -322,6 +322,23 @@ install_host_nginx() {
   systemctl restart nginx
 }
 
+install_app_firstboot_service() {
+  if [ "$MODE" != "cloud" ] || [ "$ROLE" != "app" ]; then
+    return 0
+  fi
+
+  install -D -m 0755 \
+    "$PROJECT_ROOT/deploy/ess-firstboot.sh" \
+    /usr/local/bin/youth-contest-ess-firstboot
+
+  install -D -m 0644 \
+    "$PROJECT_ROOT/deploy/systemd/youth-contest-ess-firstboot.service" \
+    /etc/systemd/system/youth-contest-ess-firstboot.service
+
+  systemctl daemon-reload
+  systemctl enable youth-contest-ess-firstboot.service
+}
+
 wait_for_container_health() {
   container_name="$1"
   attempts="${2:-30}"
@@ -469,5 +486,6 @@ echo "当前角色：$ROLE"
 echo "实例覆盖文件：$INSTANCE_ENV_FILE"
 echo '宿主机健康检查：'
 wait_for_http http://127.0.0.1:80/healthz 30 2
+install_app_firstboot_service
 curl --noproxy '*' -fsS http://127.0.0.1:80/healthz
 echo
