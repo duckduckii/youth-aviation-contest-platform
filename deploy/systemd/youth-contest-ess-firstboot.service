@@ -9,8 +9,9 @@ ConditionPathExists=/usr/local/bin/youth-contest-ess-firstboot
 Type=oneshot
 ExecStart=/usr/local/bin/youth-contest-ess-firstboot
 TimeoutStartSec=1800
+RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=cloud-init.target
