@@ -106,6 +106,8 @@ cd /root/youth-aviation-contest-platform
 ```
 
 这样会重写本机 `.env.instance`，把节点切成普通业务节点。
+在云上 `app` 角色下，发布脚本会跳过 `docker compose build`，直接使用自定义镜像内已有的 `youth-aviation-contest:latest`。
+这样 ESS 私网节点不需要再出公网拉取 `node:20-alpine`。
 
 如果你是“先做自定义镜像，再让 ESS 基于该镜像创建新实例”，不要只依赖控制台 UserData。
 阿里云基于自定义镜像创建实例时，UserData 不会按“首次启动脚本”自动执行，因此更稳妥的做法是把首启逻辑做成镜像内的 `systemd` oneshot 服务。

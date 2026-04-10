@@ -351,6 +351,18 @@ install_app_firstboot_service() {
   systemctl enable youth-contest-ess-firstboot.service
 }
 
+should_build_app_image() {
+  if [ "$MODE" = "local" ]; then
+    return 0
+  fi
+
+  if [ "$ROLE" = "export" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
 wait_for_container_health() {
   container_name="$1"
   attempts="${2:-30}"
@@ -476,7 +488,11 @@ fi
 apply_host_sysctl
 install_host_nginx
 
-$COMPOSE build app
+if should_build_app_image; then
+  $COMPOSE build app
+else
+  echo '当前为 cloud app 节点，跳过 docker compose build，直接使用镜像内已有的 youth-aviation-contest:latest。'
+fi
 
 if [ "$MODE" = "local" ]; then
   $COMPOSE up -d mysql redis

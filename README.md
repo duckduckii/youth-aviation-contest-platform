@@ -49,6 +49,9 @@ ESS 扩容节点或自定义镜像启动后，改成普通业务节点：
 ./deploy/release.sh --role app
 ```
 
+在云上 `app` 角色下，这个命令会跳过 `docker compose build`，直接使用自定义镜像内已有的 `youth-aviation-contest:latest`。
+这样 ESS 私网节点不需要出公网拉取 `node:20-alpine`。
+
 本地调试模式：
 
 ```bash
