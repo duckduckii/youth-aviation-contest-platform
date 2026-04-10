@@ -16,6 +16,13 @@
 - `export`：包月 ECS，负责管理导出下载
 - `app`：ESS 扩容 ECS，只跑普通业务流量
 
+当前建议的云上进程/连接池口径：
+
+- `export`（包月 `8C16G`，同时接普通业务流量时）：`APP_WORKERS=6`，`DB_CONNECTION_LIMIT=8`
+- `app`（ESS `4C8G`）：`APP_WORKERS=4`，`DB_CONNECTION_LIMIT=8`
+
+以上两个值会由 `./deploy/release.sh` 按节点角色自动写入 `.env.instance`。
+
 ## 发布命令
 
 默认云上发布，等价于“包月 ECS 导出节点”：

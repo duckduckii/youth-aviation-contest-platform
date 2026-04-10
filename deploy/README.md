@@ -16,7 +16,16 @@
 - `.env`
   共享业务配置，所有节点基本一致，包含 `RDS / Redis / OSS / 域名 / Cookie` 等参数。
 - `.env.instance`
-  机器本地覆盖文件，由 `./deploy/release.sh` 自动生成，用来区分 `APP_ROLE=export` 和 `APP_ROLE=app`。
+  机器本地覆盖文件，由 `./deploy/release.sh` 自动生成，用来区分节点角色和本机规格。
+
+当前默认会写入：
+
+- 包月 `export` 节点（`8C16G`，同时接普通业务流量）：
+  - `APP_WORKERS=6`
+  - `DB_CONNECTION_LIMIT=8`
+- ESS `app` 节点（`4C8G`）：
+  - `APP_WORKERS=4`
+  - `DB_CONNECTION_LIMIT=8`
 
 自定义镜像可以包含代码和 `.env`，但不要依赖镜像里已有的 `.env.instance`。
 
@@ -164,6 +173,8 @@ cat .env.instance
 
 ```bash
 APP_ROLE=export
+APP_WORKERS=6
+DB_CONNECTION_LIMIT=8
 DEPLOY_MODE=cloud
 STORAGE_DRIVER=oss
 ```
@@ -172,6 +183,8 @@ ESS 节点正常应看到：
 
 ```bash
 APP_ROLE=app
+APP_WORKERS=4
+DB_CONNECTION_LIMIT=8
 DEPLOY_MODE=cloud
 STORAGE_DRIVER=oss
 ```

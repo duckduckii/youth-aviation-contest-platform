@@ -156,6 +156,8 @@ write_instance_env() {
     cat >"$INSTANCE_ENV_FILE" <<EOF
 DEPLOY_MODE=local
 APP_ROLE=export
+APP_WORKERS=2
+DB_CONNECTION_LIMIT=12
 STORAGE_DRIVER=local
 SESSION_COOKIE_SECURE=false
 SESSION_COOKIE_DOMAIN=
@@ -168,9 +170,19 @@ REDIS_PORT=6379
 EXPORT_PUBLIC_BASE_URL=
 EOF
   else
+    if [ "$ROLE" = "app" ]; then
+      app_workers=4
+      db_connection_limit=8
+    else
+      app_workers=6
+      db_connection_limit=8
+    fi
+
     cat >"$INSTANCE_ENV_FILE" <<EOF
 DEPLOY_MODE=cloud
 APP_ROLE=$ROLE
+APP_WORKERS=$app_workers
+DB_CONNECTION_LIMIT=$db_connection_limit
 STORAGE_DRIVER=oss
 TRUST_PROXY=2
 EOF
