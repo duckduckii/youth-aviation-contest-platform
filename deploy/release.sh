@@ -6,6 +6,7 @@ PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ENV_FILE="$PROJECT_ROOT/.env"
 LEGACY_ENV_FILE="$PROJECT_ROOT/.env.production"
 INSTANCE_ENV_FILE="$PROJECT_ROOT/.env.instance"
+BOOTSTRAP_ENV_FILE="${YOUTH_CONTEST_BOOTSTRAP_ENV_FILE:-/etc/youth-contest/bootstrap.env}"
 DEFAULT_ENV_FILE="$PROJECT_ROOT/.env.example"
 LOCAL_ENV_TEMPLATE="$PROJECT_ROOT/deploy/templates/env.docker.local.example"
 DEFAULT_DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.m.daocloud.io}"
@@ -63,6 +64,47 @@ generate_secret() {
   fi
 
   od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+load_bootstrap_env() {
+  if [ ! -f "$BOOTSTRAP_ENV_FILE" ]; then
+    return 0
+  fi
+
+  echo "检测到外部覆盖配置：$BOOTSTRAP_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  . "$BOOTSTRAP_ENV_FILE"
+  set +a
+}
+
+append_instance_override() {
+  key="$1"
+  value="$(printenv "$key" 2>/dev/null || true)"
+
+  if [ -z "$value" ]; then
+    return 0
+  fi
+
+  printf '%s=%s\n' "$key" "$value" >>"$INSTANCE_ENV_FILE"
+}
+
+append_external_overrides() {
+  for key in \
+    DB_HOST \
+    DB_PORT \
+    DB_USER \
+    DB_PASSWORD \
+    DB_NAME \
+    REDIS_URL \
+    REDIS_HOST \
+    REDIS_PORT \
+    REDIS_PASSWORD \
+    OSS_ENDPOINT \
+    OSS_INTERNAL_ENDPOINT
+  do
+    append_instance_override "$key"
+  done
 }
 
 bootstrap_env_file() {
@@ -188,6 +230,7 @@ TRUST_PROXY=2
 EOF
   fi
 
+  append_external_overrides
   chmod 600 "$INSTANCE_ENV_FILE"
 }
 
@@ -416,6 +459,7 @@ run_db_tasks() {
 }
 
 reexec_as_root "$@"
+load_bootstrap_env
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

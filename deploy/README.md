@@ -109,8 +109,8 @@ cd /root/youth-aviation-contest-platform
 在云上 `app` 角色下，发布脚本会跳过 `docker compose build`，直接使用自定义镜像内已有的 `youth-aviation-contest:latest`。
 这样 ESS 私网节点不需要再出公网拉取 `node:20-alpine`。
 
-如果你是“先做自定义镜像，再让 ESS 基于该镜像创建新实例”，不要只依赖控制台 UserData。
-阿里云基于自定义镜像创建实例时，UserData 不会按“首次启动脚本”自动执行，因此更稳妥的做法是把首启逻辑做成镜像内的 `systemd` oneshot 服务。
+如果你是“先做自定义镜像，再让 ESS 基于该镜像创建新实例”，建议不要把会变化的配置直接写死在镜像里的 `.env`。
+阿里云 ESS 的伸缩配置支持 `UserData`，Linux 实例可在首次启动时执行实例自定义脚本；当前仓库同时保留镜像内的 `systemd` oneshot 首启服务，作为应用发布和健康检查的兜底入口。
 
 当前仓库的 `./deploy/release.sh --role app` 在云上 `app` 角色成功发布后，会自动安装并启用：
 
@@ -124,6 +124,37 @@ cd /root/youth-aviation-contest-platform
 ```
 
 这样镜像源机和后续 ESS 新实例都能共用同一套自愈逻辑，不依赖控制台额外再写一份 UserData。
+
+如果你希望 ESS 在扩容时动态覆盖会变更的基础设施地址，例如新建后的 `DB_HOST`，当前仓库也支持额外的外部覆盖文件：
+
+- 路径：`/etc/youth-contest/bootstrap.env`
+- 生效时机：`./deploy/release.sh` 执行时自动加载
+- 优先级：会写入 `.env.instance`，覆盖 `.env` 里的同名配置
+
+推荐做法：
+
+1. 自定义镜像里保留稳定不常变的基础配置。
+2. 在 ESS 伸缩配置的 `UserData` 里写入当前环境的 `DB_HOST` 等参数到 `/etc/youth-contest/bootstrap.env`。
+3. 由镜像内的 `youth-contest-ess-firstboot.service` 在新实例首启时执行 `./deploy/release.sh --role app`，自动把这些值落到 `.env.instance` 并启动服务。
+
+示例 `UserData`：
+
+```sh
+#!/bin/sh
+set -eu
+
+mkdir -p /etc/youth-contest
+cat >/etc/youth-contest/bootstrap.env <<'EOF'
+DB_HOST=rm-bp144mn785shpf09u.mysql.rds.aliyuncs.com
+DB_PORT=3306
+DB_USER=contest
+DB_PASSWORD=请替换为当前RDS密码
+DB_NAME=youth_aviation_contest
+EOF
+chmod 600 /etc/youth-contest/bootstrap.env
+```
+
+这样以后即使 RDS 实例重建、连接地址变化，也只需要更新 ESS 伸缩配置里的 `UserData`，不需要重新制作自定义镜像。
 
 不要在 ESS 节点上执行：
 
