@@ -1038,6 +1038,16 @@ textarea:focus {
   font-size: 20px;
 }
 
+.footer-records {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #b7c8ec;
+}
+
 .footer p {
   margin: 8px 0 0;
   line-height: 1.7;
@@ -1136,5 +1146,10 @@ textarea:focus {
   .batch-toolbar,
   .batch-select-tools {
     align-items: flex-start;
+  }
+
+  .footer-records {
+    flex-direction: column;
+    gap: 4px;
   }
 }
