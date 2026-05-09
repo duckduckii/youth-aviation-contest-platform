@@ -57,6 +57,121 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'student_name',
+    '`student_name` VARCHAR(120) DEFAULT NULL AFTER `password_hash`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'school_name',
+    '`school_name` VARCHAR(255) DEFAULT NULL AFTER `student_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'participation_mode',
+    '`participation_mode` VARCHAR(64) DEFAULT NULL AFTER `school_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'mobile',
+    '`mobile` VARCHAR(32) DEFAULT NULL AFTER `participation_mode`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'season_name',
+    '`season_name` VARCHAR(120) DEFAULT NULL AFTER `mobile`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'region_name',
+    '`region_name` VARCHAR(120) DEFAULT NULL AFTER `season_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'event_name',
+    '`event_name` VARCHAR(255) DEFAULT NULL AFTER `region_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'group_name',
+    '`group_name` VARCHAR(120) DEFAULT NULL AFTER `event_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'grade_name',
+    '`grade_name` VARCHAR(64) DEFAULT NULL AFTER `group_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'class_name',
+    '`class_name` VARCHAR(120) DEFAULT NULL AFTER `grade_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'delivery_method',
+    '`delivery_method` VARCHAR(120) DEFAULT NULL AFTER `class_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'registration_channel',
+    '`registration_channel` VARCHAR(120) DEFAULT NULL AFTER `delivery_method`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'team_name',
+    '`team_name` VARCHAR(255) DEFAULT NULL AFTER `registration_channel`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'mentor_name',
+    '`mentor_name` VARCHAR(120) DEFAULT NULL AFTER `team_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'review_status',
+    '`review_status` VARCHAR(120) DEFAULT NULL AFTER `mentor_name`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'external_submitted_at',
+    '`external_submitted_at` DATETIME DEFAULT NULL AFTER `review_status`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'external_reviewed_at',
+    '`external_reviewed_at` DATETIME DEFAULT NULL AFTER `external_submitted_at`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'last_import_batch_id',
+    '`last_import_batch_id` BIGINT UNSIGNED DEFAULT NULL AFTER `external_reviewed_at`',
+  );
+  await addColumnIfMissing(
+    conn,
+    'users',
+    'last_imported_at',
+    '`last_imported_at` DATETIME DEFAULT NULL AFTER `last_import_batch_id`',
+  );
+
   await conn.query(`
     CREATE TABLE IF NOT EXISTS submissions (
       id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -124,6 +239,23 @@ async function main() {
       created_by BIGINT UNSIGNED NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS registration_import_batches (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      source_file_name VARCHAR(255) NOT NULL,
+      source_sheet_name VARCHAR(120) DEFAULT NULL,
+      total_rows INT UNSIGNED NOT NULL DEFAULT 0,
+      success_rows INT UNSIGNED NOT NULL DEFAULT 0,
+      failed_rows INT UNSIGNED NOT NULL DEFAULT 0,
+      inserted_rows INT UNSIGNED NOT NULL DEFAULT 0,
+      updated_rows INT UNSIGNED NOT NULL DEFAULT 0,
+      created_by BIGINT UNSIGNED NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_registration_import_batches_created_at (created_at),
+      KEY idx_registration_import_batches_created_by (created_by)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 

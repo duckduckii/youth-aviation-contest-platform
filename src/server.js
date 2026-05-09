@@ -12,6 +12,7 @@ const userService = require('./services/user-service');
 const submissionService = require('./services/submission-service');
 const adminDashboardService = require('./services/admin-dashboard-service');
 const exportBatchService = require('./services/export-batch-service');
+const registrationImportService = require('./services/registration-import-service');
 const { runExportBatch, runTailExport } = require('./services/export-batch-runner-service');
 const storageService = require('./services/storage-service');
 const { createRedisClient, ensureRedisConnected, withRedisLock } = require('./services/redis-service');
@@ -88,6 +89,12 @@ const upload = multer({
     fileSize: MAX_UPLOAD_MB * 1024 * 1024,
   },
 });
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 const uploadFields = upload.fields(
   ALL_RULES.map((rule) => ({ name: rule.inputName, maxCount: 1 })),
@@ -98,12 +105,35 @@ function innovationUploadMiddleware(req, res, next) {
   return uploadFields(req, res, next);
 }
 
+function registrationImportUploadMiddleware(req, res, next) {
+  return importUpload.single('registrationFile')(req, res, next);
+}
+
 function isAdminUser(user) {
   return Boolean(user && user.registration_no === 'admin');
 }
 
 function setFlash(req, type, message) {
   req.session.flash = { type, message };
+}
+
+async function renderRegistrationImportPage(req, res, options = {}) {
+  const {
+    result = null,
+    statusCode = 200,
+    flash = null,
+  } = options;
+
+  const importData = await registrationImportService.getPageData();
+  if (flash) {
+    res.locals.flash = flash;
+  }
+
+  return res.status(statusCode).render('admin-registration-import', {
+    pageTitle: '报名导入',
+    importData,
+    importResult: result,
+  });
 }
 
 function isJsonRequest(req) {
@@ -685,6 +715,77 @@ app.get('/admin/export-batches', ensureAuth, ensureAdmin, async (req, res, next)
   } catch (error) {
     return next(error);
   }
+});
+
+app.get('/admin/registration-import', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    return await renderRegistrationImportPage(req, res);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/admin/registration-import', ensureAuth, ensureAdmin, (req, res, next) => {
+  registrationImportUploadMiddleware(req, res, async (uploadError) => {
+    if (uploadError) {
+      try {
+        return await renderRegistrationImportPage(req, res, {
+          statusCode: 400,
+          flash: {
+            type: 'error',
+            message: `上传失败：${uploadError.message}`,
+          },
+        });
+      } catch (error) {
+        return next(error);
+      }
+    }
+
+    if (!req.file) {
+      try {
+        return await renderRegistrationImportPage(req, res, {
+          statusCode: 400,
+          flash: {
+            type: 'error',
+            message: '请先选择要导入的 Excel 文件',
+          },
+        });
+      } catch (error) {
+        return next(error);
+      }
+    }
+
+    try {
+      const result = await registrationImportService.importWorkbook({
+        buffer: req.file.buffer,
+        originalName: req.file.originalname,
+        createdBy: req.currentUser.id,
+      });
+
+      return await renderRegistrationImportPage(req, res, {
+        result,
+        statusCode: result.ok ? 200 : 422,
+        flash: {
+          type: result.ok ? 'success' : 'error',
+          message: result.ok
+            ? `导入完成：新增 ${result.insertedRows} 条，更新 ${result.updatedRows} 条`
+            : '导入未执行，请先修正 Excel 中的数据问题后重试',
+        },
+      });
+    } catch (error) {
+      try {
+        return await renderRegistrationImportPage(req, res, {
+          statusCode: 500,
+          flash: {
+            type: 'error',
+            message: `导入失败：${error.message}`,
+          },
+        });
+      } catch (renderError) {
+        return next(renderError);
+      }
+    }
+  });
 });
 
 app.post('/admin/export-batches/config', ensureAuth, ensureAdmin, async (req, res) => {

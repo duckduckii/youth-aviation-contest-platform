@@ -863,6 +863,34 @@ textarea:focus {
   font-weight: 600;
 }
 
+.import-header-list {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.import-header-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #edf4ff;
+  color: #24427f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.import-kpi-value {
+  font-size: 18px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.import-error-table {
+  min-width: 720px;
+}
+
 .batch-bar-wrap {
   margin-top: 18px;
 }

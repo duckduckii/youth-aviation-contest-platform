@@ -1,0 +1,163 @@
+<%- include('partials/head', { pageTitle }) %>
+<%- include('partials/top-nav') %>
+
+<main class="main-container">
+  <% const pageData = importData || {}; %>
+  <% const requiredHeaders = pageData.requiredHeaders || []; %>
+  <% const recentBatches = pageData.recentBatches || []; %>
+  <% const result = importResult || null; %>
+
+  <%- include('partials/flash') %>
+
+  <section class="section-card">
+    <div class="batch-page-head">
+      <div>
+        <h1 class="section-title">报名导入</h1>
+        <p class="section-tip">仅管理员可导入报名主数据。系统会按报名号新增账号或更新已有账号信息，不会重置已存在账号的密码。</p>
+      </div>
+      <div class="batch-summary-pills">
+        <span class="account-pill">仅支持 `.xlsx`</span>
+        <span class="account-pill">初始密码 = 报名号后 8 位</span>
+        <span class="account-pill">已导入批次 <%= recentBatches.length %> 条</span>
+      </div>
+    </div>
+
+    <div class="batch-config-row">
+      <div class="batch-config-inline">
+        <form method="post" action="/admin/registration-import" enctype="multipart/form-data">
+          <div class="field-group">
+            <label class="field-label" for="registrationFile">报名列表 Excel</label>
+            <input
+              class="input"
+              id="registrationFile"
+              name="registrationFile"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              required
+            />
+          </div>
+
+          <div class="note-box">
+            系统会校验表头、重复报名号、手机号和时间字段格式。只要有一行校验失败，本次导入就不会写入数据库。
+          </div>
+
+          <div class="actions-row compact">
+            <button class="primary-btn" type="submit">开始导入</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <h2 class="section-title">模板要求</h2>
+    <div class="note-box">
+      必须包含以下表头，列顺序可以保持和原始导出一致：
+    </div>
+    <div class="import-header-list">
+      <% requiredHeaders.forEach((header) => { %>
+        <span class="import-header-chip"><%= header %></span>
+      <% }) %>
+    </div>
+  </section>
+
+  <% if (result) { %>
+    <section class="section-card">
+      <h2 class="section-title">本次导入结果</h2>
+
+      <div class="dashboard-kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">源文件</div>
+          <div class="kpi-value import-kpi-value"><%= result.sourceFileName %></div>
+          <div class="kpi-meta">工作表：<%= result.sourceSheetName %></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">总行数</div>
+          <div class="kpi-value"><%= result.totalRows %></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">成功行数</div>
+          <div class="kpi-value"><%= result.successRows %></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">失败行数</div>
+          <div class="kpi-value"><%= result.failedRows %></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">新增账号</div>
+          <div class="kpi-value"><%= result.insertedRows %></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">更新账号</div>
+          <div class="kpi-value"><%= result.updatedRows %></div>
+        </div>
+      </div>
+
+      <% if (result.errors && result.errors.length > 0) { %>
+        <div class="table-wrap">
+          <table class="dashboard-table import-error-table">
+            <thead>
+              <tr>
+                <th>Excel 行号</th>
+                <th>报名号</th>
+                <th>错误原因</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% result.errors.forEach((item) => { %>
+                <tr>
+                  <td><%= item.rowNumber %></td>
+                  <td><%= item.registrationNo || '--' %></td>
+                  <td><%= item.message %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
+  <% } %>
+
+  <section class="section-card">
+    <h2 class="section-title">最近导入批次</h2>
+    <div class="table-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th>批次 ID</th>
+            <th>源文件</th>
+            <th>工作表</th>
+            <th>总行数</th>
+            <th>新增</th>
+            <th>更新</th>
+            <th>失败</th>
+            <th>操作人</th>
+            <th>导入时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (recentBatches.length === 0) { %>
+            <tr>
+              <td colspan="9" class="table-empty">当前还没有导入记录</td>
+            </tr>
+          <% } %>
+          <% recentBatches.forEach((batch) => { %>
+            <tr>
+              <td><%= batch.id %></td>
+              <td title="<%= batch.sourceFileName %>"><%= batch.sourceFileName %></td>
+              <td><%= batch.sourceSheetName || '--' %></td>
+              <td><%= batch.totalRows %></td>
+              <td><%= batch.insertedRows %></td>
+              <td><%= batch.updatedRows %></td>
+              <td><%= batch.failedRows %></td>
+              <td><%= batch.createdBy %></td>
+              <td><%= batch.createdAt ? new Date(batch.createdAt).toLocaleString('zh-CN', { hour12: false }) : '--' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>
