@@ -725,6 +725,15 @@ app.get('/admin/registration-import', ensureAuth, ensureAdmin, async (req, res, 
   }
 });
 
+app.get('/admin/registration-import/status', ensureAuth, ensureAdmin, async (req, res, next) => {
+  try {
+    const batches = await registrationImportService.listRecentBatches(12);
+    return res.json({ batches });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.post('/admin/registration-import', ensureAuth, ensureAdmin, (req, res, next) => {
   registrationImportUploadMiddleware(req, res, async (uploadError) => {
     if (uploadError) {
@@ -756,20 +765,32 @@ app.post('/admin/registration-import', ensureAuth, ensureAdmin, (req, res, next)
     }
 
     try {
-      const result = await registrationImportService.importWorkbook({
+      let forcedDirection = null;
+      const rawDirection = (req.body.forcedDirection || '').trim();
+      if ([TRACKS.KNOWLEDGE, TRACKS.INNOVATION].includes(rawDirection)) {
+        forcedDirection = rawDirection;
+      }
+
+      const result = await registrationImportService.startImportJob({
         buffer: req.file.buffer,
         originalName: req.file.originalname,
         createdBy: req.currentUser.id,
+        forcedDirection,
       });
+
+      let successMessage = result.status === 'FAILED'
+        ? '导入任务校验失败，请查看错误明细'
+        : `导入任务已启动：批次 #${result.id}，可在页面查看进度`;
+      if (forcedDirection) {
+        successMessage += `（预设方向：${TRACK_LABELS[forcedDirection]}）`;
+      }
 
       return await renderRegistrationImportPage(req, res, {
         result,
-        statusCode: result.ok ? 200 : 422,
+        statusCode: result.status === 'FAILED' ? 422 : 202,
         flash: {
-          type: result.ok ? 'success' : 'error',
-          message: result.ok
-            ? `导入完成：新增 ${result.insertedRows} 条，更新 ${result.updatedRows} 条`
-            : '导入未执行，请先修正 Excel 中的数据问题后重试',
+          type: result.status === 'FAILED' ? 'error' : 'success',
+          message: successMessage,
         },
       });
     } catch (error) {

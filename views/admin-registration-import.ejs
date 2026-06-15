@@ -6,6 +6,8 @@
   <% const requiredHeaders = pageData.requiredHeaders || []; %>
   <% const recentBatches = pageData.recentBatches || []; %>
   <% const result = importResult || null; %>
+  <% const statusLabels = { RUNNING: '导入中', SUCCESS: '完成', FAILED: '失败' }; %>
+  <% const statusClasses = { RUNNING: 'draft', SUCCESS: 'submitted', FAILED: 'failed' }; %>
 
   <%- include('partials/flash') %>
 
@@ -37,8 +39,22 @@
             />
           </div>
 
+          <div class="field-group">
+            <label class="field-label" for="forcedDirection">预设比赛方向（可选）</label>
+            <select class="input" id="forcedDirection" name="forcedDirection">
+              <option value="">不预设，用户登录后自行选择</option>
+              <% importData.tracks.forEach((track) => { %>
+                <option value="<%= track %>"><%= importData.trackLabels[track] %></option>
+              <% }) %>
+            </select>
+            <div class="note-box" style="margin-top: 8px;">
+              <strong>知识类：</strong>用户将被锁定为知识类方向，登录后直接进入知识类页面，不可再更改。<br>
+              <strong>创新设计类：</strong>用户默认选择创新设计类，登录后直接进入创新类提交页面。
+            </div>
+          </div>
+
           <div class="note-box">
-            系统会校验表头、重复报名号、手机号和时间字段格式。只要有一行校验失败，本次导入就不会写入数据库。
+            系统会先校验表头、重复报名号、手机号和时间字段格式；手机号支持纯数字或 137****8409 这类脱敏格式。校验通过后转入后台任务，可在本页查看进度。
           </div>
 
           <div class="actions-row compact">
@@ -63,7 +79,7 @@
 
   <% if (result) { %>
     <section class="section-card">
-      <h2 class="section-title">本次导入结果</h2>
+      <h2 class="section-title">本次导入任务</h2>
 
       <div class="dashboard-kpi-grid">
         <div class="kpi-card">
@@ -72,16 +88,22 @@
           <div class="kpi-meta">工作表：<%= result.sourceSheetName %></div>
         </div>
         <div class="kpi-card">
+          <div class="kpi-label">状态</div>
+          <div class="kpi-value import-kpi-value"><%= statusLabels[result.status] || result.status %></div>
+          <div class="kpi-meta">批次 #<%= result.id %></div>
+        </div>
+        <div class="kpi-card">
           <div class="kpi-label">总行数</div>
           <div class="kpi-value"><%= result.totalRows %></div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">成功行数</div>
-          <div class="kpi-value"><%= result.successRows %></div>
+          <div class="kpi-label">处理进度</div>
+          <div class="kpi-value"><%= result.processedRows %>/<%= result.totalRows %></div>
+          <div class="kpi-meta"><%= result.progressPercent %>%</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">失败行数</div>
-          <div class="kpi-value"><%= result.failedRows %></div>
+          <div class="kpi-label">成功行数</div>
+          <div class="kpi-value"><%= result.successRows %></div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">新增账号</div>
@@ -92,6 +114,10 @@
           <div class="kpi-value"><%= result.updatedRows %></div>
         </div>
       </div>
+
+      <% if (result.errorMessage) { %>
+        <div class="note-box"><%= result.errorMessage %></div>
+      <% } %>
 
       <% if (result.errors && result.errors.length > 0) { %>
         <div class="table-wrap">
@@ -127,6 +153,9 @@
             <th>批次 ID</th>
             <th>源文件</th>
             <th>工作表</th>
+            <th>预设方向</th>
+            <th>状态</th>
+            <th>进度</th>
             <th>总行数</th>
             <th>新增</th>
             <th>更新</th>
@@ -135,10 +164,10 @@
             <th>导入时间</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="import-batches-body">
           <% if (recentBatches.length === 0) { %>
             <tr>
-              <td colspan="9" class="table-empty">当前还没有导入记录</td>
+              <td colspan="12" class="table-empty">当前还没有导入记录</td>
             </tr>
           <% } %>
           <% recentBatches.forEach((batch) => { %>
@@ -146,6 +175,14 @@
               <td><%= batch.id %></td>
               <td title="<%= batch.sourceFileName %>"><%= batch.sourceFileName %></td>
               <td><%= batch.sourceSheetName || '--' %></td>
+              <td><%= batch.forcedDirection ? importData.trackLabels[batch.forcedDirection] : '--' %></td>
+              <td><span class="status-pill <%= statusClasses[batch.status] || 'neutral' %>"><%= statusLabels[batch.status] || batch.status %></span></td>
+              <td>
+                <div><%= batch.processedRows %>/<%= batch.totalRows %>（<%= batch.progressPercent %>%）</div>
+                <div class="progress-track import-progress-track">
+                  <div class="progress-fill <%= batch.status === 'SUCCESS' ? 'success' : (batch.status === 'FAILED' ? 'warning' : '') %>" style="width: <%= batch.progressPercent %>%"></div>
+                </div>
+              </td>
               <td><%= batch.totalRows %></td>
               <td><%= batch.insertedRows %></td>
               <td><%= batch.updatedRows %></td>
@@ -159,5 +196,81 @@
     </div>
   </section>
 </main>
+
+<script>
+  (() => {
+    const tbody = document.getElementById('import-batches-body');
+    if (!tbody) return;
+
+    const statusLabels = { RUNNING: '导入中', SUCCESS: '完成', FAILED: '失败' };
+    const statusClasses = { RUNNING: 'draft', SUCCESS: 'submitted', FAILED: 'failed' };
+    const trackLabels = <%- JSON.stringify(importData.trackLabels || {}) %>;
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+
+    function formatDate(value) {
+      if (!value) return '--';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '--';
+      return date.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function renderBatch(batch) {
+      const status = batch.status || 'SUCCESS';
+      const progressClass = status === 'SUCCESS' ? 'success' : (status === 'FAILED' ? 'warning' : '');
+      const directionLabel = batch.forcedDirection ? trackLabels[batch.forcedDirection] : '--';
+      return `
+        <tr>
+          <td>${escapeHtml(batch.id)}</td>
+          <td title="${escapeHtml(batch.sourceFileName)}">${escapeHtml(batch.sourceFileName)}</td>
+          <td>${escapeHtml(batch.sourceSheetName || '--')}</td>
+          <td>${escapeHtml(directionLabel || '--')}</td>
+          <td><span class="status-pill ${statusClasses[status] || 'neutral'}">${escapeHtml(statusLabels[status] || status)}</span></td>
+          <td>
+            <div>${escapeHtml(batch.processedRows)}/${escapeHtml(batch.totalRows)}（${escapeHtml(batch.progressPercent)}%）</div>
+            <div class="progress-track import-progress-track">
+              <div class="progress-fill ${progressClass}" style="width: ${Number(batch.progressPercent) || 0}%"></div>
+            </div>
+          </td>
+          <td>${escapeHtml(batch.totalRows)}</td>
+          <td>${escapeHtml(batch.insertedRows)}</td>
+          <td>${escapeHtml(batch.updatedRows)}</td>
+          <td>${escapeHtml(batch.failedRows)}</td>
+          <td>${escapeHtml(batch.createdBy)}</td>
+          <td>${escapeHtml(formatDate(batch.createdAt))}</td>
+        </tr>
+      `;
+    }
+
+    async function refreshImportBatches() {
+      try {
+        const response = await fetch('/admin/registration-import/status', {
+          headers: { Accept: 'application/json' },
+          credentials: 'same-origin',
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const batches = Array.isArray(data.batches) ? data.batches : [];
+        if (batches.length === 0) return;
+        tbody.innerHTML = batches.map(renderBatch).join('');
+      } catch (error) {
+        // Keep the last rendered state if polling fails.
+      }
+    }
+
+    if (tbody.querySelector('.status-pill.draft')) {
+      refreshImportBatches();
+      setInterval(refreshImportBatches, 3000);
+    }
+  })();
+</script>
 
 <%- include('partials/footer') %>

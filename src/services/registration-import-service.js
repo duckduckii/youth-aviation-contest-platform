@@ -2,7 +2,7 @@ const xlsx = require('xlsx');
 
 const config = require('../config');
 const { pool, query } = require('../db');
-const { TRACKS } = require('../constants');
+const { TRACKS, TRACK_LABELS } = require('../constants');
 const { hashPassword } = require('../utils/password');
 
 const REQUIRED_HEADERS = [
@@ -27,6 +27,12 @@ const REQUIRED_HEADERS = [
 ];
 
 const RESERVED_REGISTRATION_NOS = new Set(['admin', 'test']);
+const IMPORT_BATCH_STATUS = {
+  RUNNING: 'RUNNING',
+  SUCCESS: 'SUCCESS',
+  FAILED: 'FAILED',
+};
+const PROGRESS_UPDATE_INTERVAL = 10;
 
 const IMPORT_FIELD_MAP = {
   '学生姓名': 'student_name',
@@ -104,6 +110,11 @@ function normalizeNullableText(value) {
   return text || null;
 }
 
+function isValidMobile(value) {
+  const text = normalizeText(value);
+  return !text || /^(?=.*\d)[\d*]{6,20}$/.test(text);
+}
+
 function normalizeDateTime(value) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -140,14 +151,6 @@ function normalizeDateTime(value) {
     return text;
   }
 
-  return null;
-}
-
-function inferDirection(eventName) {
-  const text = normalizeText(eventName);
-  if (!text) return null;
-  if (text.includes('知识')) return TRACKS.KNOWLEDGE;
-  if (text.includes('创新设计') || text.includes('航模')) return TRACKS.INNOVATION;
   return null;
 }
 
@@ -197,17 +200,75 @@ async function ensureSchema() {
             id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
             source_file_name VARCHAR(255) NOT NULL,
             source_sheet_name VARCHAR(120) DEFAULT NULL,
+            forced_direction VARCHAR(32) DEFAULT NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+            processed_rows INT UNSIGNED NOT NULL DEFAULT 0,
             total_rows INT UNSIGNED NOT NULL DEFAULT 0,
             success_rows INT UNSIGNED NOT NULL DEFAULT 0,
             failed_rows INT UNSIGNED NOT NULL DEFAULT 0,
             inserted_rows INT UNSIGNED NOT NULL DEFAULT 0,
             updated_rows INT UNSIGNED NOT NULL DEFAULT 0,
+            error_message TEXT DEFAULT NULL,
+            errors_json MEDIUMTEXT DEFAULT NULL,
             created_by BIGINT UNSIGNED NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            started_at DATETIME DEFAULT NULL,
+            finished_at DATETIME DEFAULT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             KEY idx_registration_import_batches_created_at (created_at),
-            KEY idx_registration_import_batches_created_by (created_by)
+            KEY idx_registration_import_batches_created_by (created_by),
+            KEY idx_registration_import_batches_status (status)
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
+
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'forced_direction',
+          'forced_direction VARCHAR(32) DEFAULT NULL',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'status',
+          "status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS' AFTER forced_direction",
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'processed_rows',
+          'processed_rows INT UNSIGNED NOT NULL DEFAULT 0 AFTER status',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'error_message',
+          'error_message TEXT DEFAULT NULL AFTER updated_rows',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'errors_json',
+          'errors_json MEDIUMTEXT DEFAULT NULL AFTER error_message',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'started_at',
+          'started_at DATETIME DEFAULT NULL AFTER created_at',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'finished_at',
+          'finished_at DATETIME DEFAULT NULL AFTER started_at',
+        );
+        await addColumnIfMissing(
+          conn,
+          'registration_import_batches',
+          'updated_at',
+          'updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER finished_at',
+        );
 
         await addColumnIfMissing(
           conn,
@@ -394,7 +455,7 @@ function parseWorkbook(buffer) {
   };
 }
 
-function buildImportPayload(entry) {
+function buildImportPayload(entry, forcedDirection = null) {
   const payload = {};
   Object.entries(IMPORT_FIELD_MAP).forEach(([header, column]) => {
     payload[column] = normalizeNullableText(entry.data[header]);
@@ -402,12 +463,13 @@ function buildImportPayload(entry) {
 
   payload.external_submitted_at = normalizeDateTime(entry.data['提交时间']);
   payload.external_reviewed_at = normalizeDateTime(entry.data['审核时间']);
-  payload.direction = inferDirection(entry.data['赛事类型']);
+
+  payload.direction = forcedDirection || null;
 
   return payload;
 }
 
-function validateRows(entries) {
+function validateRows(entries, forcedDirection = null) {
   const errors = [];
   const seen = new Map();
   const normalizedRows = [];
@@ -416,7 +478,7 @@ function validateRows(entries) {
     const registrationNo = normalizeText(entry.data['报名号']);
     const studentName = normalizeText(entry.data['学生姓名']);
     const mobile = normalizeText(entry.data['手机号']);
-    const payload = buildImportPayload(entry);
+    const payload = buildImportPayload(entry, forcedDirection);
 
     if (!registrationNo) {
       errors.push({ rowNumber: entry.rowNumber, registrationNo: '', message: '报名号不能为空' });
@@ -443,7 +505,7 @@ function validateRows(entries) {
       return;
     }
 
-    if (mobile && !/^\d{6,20}$/.test(mobile)) {
+    if (!isValidMobile(mobile)) {
       errors.push({ rowNumber: entry.rowNumber, registrationNo, message: '手机号格式不正确' });
       return;
     }
@@ -495,20 +557,34 @@ async function insertImportBatch(conn, payload) {
     `INSERT INTO registration_import_batches (
       source_file_name,
       source_sheet_name,
+      forced_direction,
+      status,
+      processed_rows,
       total_rows,
       success_rows,
       failed_rows,
       inserted_rows,
       updated_rows,
+      error_message,
+      errors_json,
+      started_at,
+      finished_at,
       created_by
     ) VALUES (
       :sourceFileName,
       :sourceSheetName,
+      :forcedDirection,
+      :status,
+      :processedRows,
       :totalRows,
       :successRows,
       :failedRows,
       :insertedRows,
       :updatedRows,
+      :errorMessage,
+      :errorsJson,
+      :startedAt,
+      :finishedAt,
       :createdBy
     )`,
     payload,
@@ -516,68 +592,148 @@ async function insertImportBatch(conn, payload) {
   return result.insertId;
 }
 
-async function importWorkbook({ buffer, originalName, createdBy }) {
-  await ensureSchema();
-
-  const workbook = parseWorkbook(buffer);
-  const validation = validateRows(workbook.rows);
-  const totalRows = workbook.rows.length;
-  const sourceFileName = normalizeSourceFileName(originalName);
-
-  if (validation.rows.length === 0) {
-    return {
-      ok: false,
-      totalRows,
-      successRows: 0,
-      failedRows: validation.errors.length || totalRows,
-      insertedRows: 0,
-      updatedRows: 0,
-      errors: validation.errors.length > 0
-        ? validation.errors
-        : [{ rowNumber: '-', registrationNo: '-', message: '没有可导入的数据行' }],
-      sourceFileName,
-      sourceSheetName: workbook.sheetName,
-    };
+function serializeErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) {
+    return null;
   }
+  return JSON.stringify(errors.slice(0, 200));
+}
 
-  if (validation.errors.length > 0) {
-    return {
-      ok: false,
-      totalRows,
-      successRows: 0,
-      failedRows: validation.errors.length,
-      insertedRows: 0,
-      updatedRows: 0,
-      errors: validation.errors,
-      sourceFileName,
-      sourceSheetName: workbook.sheetName,
-    };
+function parseStoredErrors(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
   }
+}
 
+async function getRunningImportBatch() {
+  const rows = await query(
+    `SELECT id, source_file_name
+     FROM registration_import_batches
+     WHERE status = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+    [IMPORT_BATCH_STATUS.RUNNING],
+  );
+  return rows[0] || null;
+}
+
+async function createBatch(payload) {
   const conn = await pool.getConnection();
   try {
-    await conn.beginTransaction();
+    return await insertImportBatch(conn, {
+      sourceFileName: payload.sourceFileName,
+      sourceSheetName: payload.sourceSheetName || null,
+      forcedDirection: payload.forcedDirection || null,
+      status: payload.status,
+      processedRows: payload.processedRows || 0,
+      totalRows: payload.totalRows || 0,
+      successRows: payload.successRows || 0,
+      failedRows: payload.failedRows || 0,
+      insertedRows: payload.insertedRows || 0,
+      updatedRows: payload.updatedRows || 0,
+      errorMessage: payload.errorMessage || null,
+      errorsJson: serializeErrors(payload.errors),
+      startedAt: payload.status === IMPORT_BATCH_STATUS.RUNNING ? new Date() : null,
+      finishedAt: payload.status === IMPORT_BATCH_STATUS.FAILED ? new Date() : null,
+      createdBy: payload.createdBy,
+    });
+  } finally {
+    conn.release();
+  }
+}
 
+async function updateBatchProgress(conn, batchId, payload) {
+  await conn.query(
+    `UPDATE registration_import_batches
+     SET processed_rows = :processedRows,
+         success_rows = :successRows,
+         failed_rows = :failedRows,
+         inserted_rows = :insertedRows,
+         updated_rows = :updatedRows
+     WHERE id = :batchId`,
+    {
+      batchId,
+      processedRows: payload.processedRows,
+      successRows: payload.successRows,
+      failedRows: payload.failedRows,
+      insertedRows: payload.insertedRows,
+      updatedRows: payload.updatedRows,
+    },
+  );
+}
+
+async function markBatchCompleted(conn, batchId, payload) {
+  await conn.query(
+    `UPDATE registration_import_batches
+     SET status = :status,
+         processed_rows = :processedRows,
+         success_rows = :successRows,
+         failed_rows = 0,
+         inserted_rows = :insertedRows,
+         updated_rows = :updatedRows,
+         error_message = NULL,
+         errors_json = NULL,
+         finished_at = NOW()
+     WHERE id = :batchId`,
+    {
+      batchId,
+      status: IMPORT_BATCH_STATUS.SUCCESS,
+      processedRows: payload.processedRows,
+      successRows: payload.successRows,
+      insertedRows: payload.insertedRows,
+      updatedRows: payload.updatedRows,
+    },
+  );
+}
+
+async function markBatchFailed(batchId, error, payload = {}) {
+  await query(
+    `UPDATE registration_import_batches
+     SET status = :status,
+         processed_rows = :processedRows,
+         success_rows = :successRows,
+         failed_rows = :failedRows,
+         inserted_rows = :insertedRows,
+         updated_rows = :updatedRows,
+         error_message = :errorMessage,
+         errors_json = :errorsJson,
+         finished_at = NOW()
+     WHERE id = :batchId`,
+    {
+      batchId,
+      status: IMPORT_BATCH_STATUS.FAILED,
+      processedRows: payload.processedRows || 0,
+      successRows: payload.successRows || 0,
+      failedRows: payload.failedRows || 0,
+      insertedRows: payload.insertedRows || 0,
+      updatedRows: payload.updatedRows || 0,
+      errorMessage: error.message || String(error),
+      errorsJson: serializeErrors(payload.errors),
+    },
+  );
+}
+
+async function runImportBatch(batchId, rows) {
+  const conn = await pool.getConnection();
+  const counters = {
+    processedRows: 0,
+    successRows: 0,
+    failedRows: 0,
+    insertedRows: 0,
+    updatedRows: 0,
+  };
+
+  try {
     const existingUsers = await getExistingUsersMap(
       conn,
-      validation.rows.map((row) => row.registrationNo),
+      rows.map((row) => row.registrationNo),
     );
 
-    let insertedRows = 0;
-    let updatedRows = 0;
-
-    const batchId = await insertImportBatch(conn, {
-      sourceFileName,
-      sourceSheetName: workbook.sheetName,
-      totalRows,
-      successRows: validation.rows.length,
-      failedRows: 0,
-      insertedRows: 0,
-      updatedRows: 0,
-      createdBy,
-    });
-
-    for (const row of validation.rows) {
+    for (const row of rows) {
       const existing = existingUsers.get(row.registrationNo);
       const userPayload = {
         ...row.payload,
@@ -616,68 +772,151 @@ async function importWorkbook({ buffer, originalName, createdBy }) {
             id: existing.id,
           },
         );
-        updatedRows += 1;
-        continue;
+        counters.updatedRows += 1;
+      } else {
+        const passwordHash = await hashPassword(initialPassword(row.registrationNo));
+        await conn.query(
+          `INSERT INTO users (
+            registration_no,
+            password_hash,
+            direction,
+            ${USER_IMPORT_COLUMNS.join(', ')}
+          ) VALUES (
+            :registration_no,
+            :password_hash,
+            :direction,
+            ${USER_IMPORT_COLUMNS.map((column) => `:${column}`).join(', ')}
+          )`,
+          {
+            registration_no: row.registrationNo,
+            password_hash: passwordHash,
+            direction: row.payload.direction || null,
+            ...userPayload,
+          },
+        );
+        counters.insertedRows += 1;
       }
 
-      const passwordHash = await hashPassword(initialPassword(row.registrationNo));
-      await conn.query(
-        `INSERT INTO users (
-          registration_no,
-          password_hash,
-          direction,
-          ${USER_IMPORT_COLUMNS.join(', ')}
-        ) VALUES (
-          :registration_no,
-          :password_hash,
-          :direction,
-          ${USER_IMPORT_COLUMNS.map((column) => `:${column}`).join(', ')}
-        )`,
-        {
-          registration_no: row.registrationNo,
-          password_hash: passwordHash,
-          direction: row.payload.direction || null,
-          ...userPayload,
-        },
-      );
-      insertedRows += 1;
+      counters.processedRows += 1;
+      counters.successRows += 1;
+
+      if (counters.processedRows % PROGRESS_UPDATE_INTERVAL === 0) {
+        await updateBatchProgress(conn, batchId, counters);
+      }
     }
 
-    await conn.query(
-      `UPDATE registration_import_batches
-       SET success_rows = :successRows,
-           failed_rows = 0,
-           inserted_rows = :insertedRows,
-           updated_rows = :updatedRows
-       WHERE id = :batchId`,
-      {
-        batchId,
-        successRows: validation.rows.length,
-        insertedRows,
-        updatedRows,
-      },
-    );
-
-    await conn.commit();
-
-    return {
-      ok: true,
-      totalRows,
-      successRows: validation.rows.length,
-      failedRows: 0,
-      insertedRows,
-      updatedRows,
-      batchId,
-      errors: [],
-      sourceFileName,
-      sourceSheetName: workbook.sheetName,
-    };
+    await markBatchCompleted(conn, batchId, counters);
   } catch (error) {
-    await conn.rollback();
-    throw error;
+    await markBatchFailed(batchId, error, counters);
+    console.error('Registration import job failed:', error);
   } finally {
     conn.release();
   }
+}
+
+function scheduleImportBatch(batchId, rows) {
+  setImmediate(() => {
+    runImportBatch(batchId, rows).catch((error) => {
+      console.error('Registration import job crashed:', error);
+    });
+  });
+}
+
+async function startImportJob({ buffer, originalName, createdBy, forcedDirection = null }) {
+  await ensureSchema();
+
+  const runningBatch = await getRunningImportBatch();
+  if (runningBatch) {
+    throw new Error(`已有导入任务正在执行：#${runningBatch.id} ${runningBatch.source_file_name}`);
+  }
+
+  const sourceFileName = normalizeSourceFileName(originalName);
+  let workbook;
+  let validation;
+
+  try {
+    workbook = parseWorkbook(buffer);
+    validation = validateRows(workbook.rows, forcedDirection);
+  } catch (error) {
+    const batchId = await createBatch({
+      sourceFileName,
+      status: IMPORT_BATCH_STATUS.FAILED,
+      failedRows: 1,
+      errorMessage: error.message,
+      createdBy,
+    });
+    return getImportBatch(batchId);
+  }
+
+  if (validation.rows.length === 0) {
+    const errors = validation.errors.length > 0
+      ? validation.errors
+      : [{ rowNumber: '-', registrationNo: '-', message: '没有可导入的数据行' }];
+    const batchId = await createBatch({
+      sourceFileName,
+      sourceSheetName: workbook.sheetName,
+      forcedDirection,
+      status: IMPORT_BATCH_STATUS.FAILED,
+      totalRows: workbook.rows.length,
+      failedRows: errors.length || workbook.rows.length,
+      errorMessage: '没有可导入的数据行',
+      errors,
+      createdBy,
+    });
+    return getImportBatch(batchId);
+  }
+
+  if (validation.errors.length > 0) {
+    const batchId = await createBatch({
+      sourceFileName,
+      sourceSheetName: workbook.sheetName,
+      forcedDirection,
+      status: IMPORT_BATCH_STATUS.FAILED,
+      totalRows: workbook.rows.length,
+      failedRows: validation.errors.length,
+      errorMessage: 'Excel 数据校验失败',
+      errors: validation.errors,
+      createdBy,
+    });
+    return getImportBatch(batchId);
+  }
+
+  const batchId = await createBatch({
+    sourceFileName,
+    sourceSheetName: workbook.sheetName,
+    forcedDirection,
+    status: IMPORT_BATCH_STATUS.RUNNING,
+    totalRows: workbook.rows.length,
+    createdBy,
+  });
+
+  scheduleImportBatch(batchId, validation.rows);
+  return getImportBatch(batchId);
+}
+
+async function getImportBatch(batchId) {
+  await ensureSchema();
+
+  const rows = await query(
+    `SELECT
+      rib.*,
+      u.registration_no AS creator_registration_no
+    FROM registration_import_batches rib
+    LEFT JOIN users u ON u.id = rib.created_by
+    WHERE rib.id = ?
+    LIMIT 1`,
+    [batchId],
+  );
+
+  if (!rows[0]) {
+    return null;
+  }
+
+  return mapImportBatch(rows[0]);
+}
+
+async function importWorkbook(options) {
+  return startImportJob(options);
 }
 
 async function listRecentBatches(limit = 10) {
@@ -694,18 +933,33 @@ async function listRecentBatches(limit = 10) {
     LIMIT ${safeLimit}`,
   );
 
-  return rows.map((row) => ({
+  return rows.map(mapImportBatch);
+}
+
+function mapImportBatch(row) {
+  const totalRows = Number(row.total_rows) || 0;
+  const processedRows = Number(row.processed_rows) || 0;
+  return {
     id: row.id,
     sourceFileName: row.source_file_name,
     sourceSheetName: row.source_sheet_name,
-    totalRows: Number(row.total_rows) || 0,
+    forcedDirection: row.forced_direction,
+    status: row.status || IMPORT_BATCH_STATUS.SUCCESS,
+    processedRows,
+    progressPercent: totalRows > 0 ? Math.min(100, Math.round((processedRows / totalRows) * 100)) : 0,
+    totalRows,
     successRows: Number(row.success_rows) || 0,
     failedRows: Number(row.failed_rows) || 0,
     insertedRows: Number(row.inserted_rows) || 0,
     updatedRows: Number(row.updated_rows) || 0,
+    errorMessage: row.error_message || '',
+    errors: parseStoredErrors(row.errors_json),
     createdBy: row.creator_registration_no || row.created_by,
     createdAt: row.created_at,
-  }));
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 async function getPageData() {
@@ -713,11 +967,16 @@ async function getPageData() {
   return {
     requiredHeaders: REQUIRED_HEADERS,
     recentBatches,
+    tracks: [TRACKS.KNOWLEDGE, TRACKS.INNOVATION],
+    trackLabels: TRACK_LABELS,
   };
 }
 
 module.exports = {
   ensureSchema,
+  getImportBatch,
   getPageData,
   importWorkbook,
+  listRecentBatches,
+  startImportJob,
 };
